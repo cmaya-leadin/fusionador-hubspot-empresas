@@ -1,0 +1,21 @@
+{
+  "_comment": "Solo EXCEPCIONES: marcas que comparten grupo pero NO comparten slug (ej. resinex+cyjsa→ravago). El 99% se resuelve con agrupacion.json (auto multi-TLD).",
+  "families": [
+    {
+      "id": "ravago",
+      "label": "Ravago Group",
+      "canonicalKey": "ravago.com",
+      "preferHubDomain": "ravago.com",
+      "domains": [
+        "ravagochemicals.com",
+        "ravagobuildingsolutions.com",
+        "ravagobuildingsolutions.co.uk",
+        "resinex.com",
+        "resinex.es",
+        "cyjsa.com",
+        "devos-plastics.be"
+      ],
+      "brandSlugs": []
+    }
+  ]
+}

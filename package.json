@@ -1,0 +1,29 @@
+{
+  "name": "hubspot-grupos-empresas",
+  "version": "1.0.0",
+  "description": "Agrupa empresas de HubSpot por dominio y crea asociaciones grupo_empresa",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dry-run": "node src/index.js --dry-run",
+    "dry-run:seguro": "node src/index.js --dry-run --min-confidence 90",
+    "apply": "node src/index.js --apply --confirm-full-run",
+    "test:dry-run": "node src/index.js --dry-run --dominio ravago",
+    "ravago:dry-run": "node src/index.js --dry-run --grupo ravago",
+    "test:apply": "node src/index.js --apply --dominio ravago --max-grupos 5",
+    "revert:test": "node src/index.js --revert --from output/cambios_aplicados_prueba.csv",
+    "merge:dry-run": "node src/merge-cli.js --dry-run",
+    "merge:dry-run:prueba": "node src/merge-cli.js --dry-run --max-grupos 5",
+    "merge:test": "node src/merge-cli.js --dry-run --max-grupos 5",
+    "merge:apply:test": "node src/merge-cli.js --apply --max-grupos 5",
+    "merge:apply": "node src/merge-cli.js --apply --confirm-full-run",
+    "merge:server": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
