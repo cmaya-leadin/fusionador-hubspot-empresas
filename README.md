@@ -115,6 +115,23 @@ docker compose up -d --build
 5. Si todo es correcto, **Aplicar Fusión**.
 6. Si hay errores, usa **Reintentar fallos**.
 
+## Rendimiento de fusiones
+
+HubSpot procesa cada fusión de forma asíncrona; los errores 500 suelen deberse a ir demasiado rápido sobre el **mismo principal**. El motor agrupa por `primaryId` y, por defecto, ejecuta **3 colas en paralelo** (principales distintos a la vez).
+
+Variables en Portainer (ver `portainer.env.example`):
+
+| Variable | Por defecto | Descripción |
+|----------|-------------|-------------|
+| `MERGE_CONCURRENCY` | `3` | Colas paralelas (1 = secuencial) |
+| `MERGE_SAME_PRIMARY_SETTLE_MS` | `1200` | Pausa entre fusiones al mismo principal |
+| `MERGE_SETTLE_MS` | `600` | Pausa tras fusión exitosa |
+| `MERGE_RETRY_BASE_MS` | `2000` | Espera entre reintentos (× intento, tope abajo) |
+| `MERGE_RETRY_MAX_MS` | `12000` | Tope de espera entre reintentos |
+| `MERGE_SKIP_PREFLIGHT` | `false` | `true` = sin comprobación previa (más rápido) |
+
+Estimación orientativa: 1884 fusiones con 3 colas ≈ 30–90 min según reintentos. Si ves muchos 500 en el mismo principal, sube `MERGE_SAME_PRIMARY_SETTLE_MS` a `2000` o baja `MERGE_CONCURRENCY` a `2`.
+
 ## Estructura
 
 ```

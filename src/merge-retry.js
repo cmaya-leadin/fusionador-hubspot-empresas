@@ -2,7 +2,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { readCsv } from './csv.js';
 import { getLastApplyRun, getMergeRunById } from './db.js';
-import { mergeIntoPrimary, MERGE_RESULTS_CSV_HEADERS, resultsToCsvRows } from './merge.js';
+import { executeMergeOperations, MERGE_RESULTS_CSV_HEADERS, resultsToCsvRows } from './merge.js';
 import { writeCsv } from './csv.js';
 
 /**
@@ -173,67 +173,22 @@ export async function executeRetryFailedMerges(
   progress?.start(entityType, false);
   progress?.log(`Reintentando ${total} fusiones fallidas (${sourceLabel})…`);
 
-  /** @type {Set<string>} */
-  const alreadyMergedIds = new Set();
-  /** @type {Array<Record<string, unknown>>} */
-  const results = [];
-  let mergesApplied = 0;
-  let mergesFailed = 0;
-  let mergesSkipped = 0;
+  const { results, stats: mergeStats } = await executeMergeOperations(
+    client,
+    entityType,
+    operations,
+    {
+      onLog: (msg) => progress?.log(msg),
+      onStep: (data) => progress?.mergeStep(data),
+    },
+  );
 
-  const MERGE_DELAY_MS = Number(process.env.MERGE_DELAY_MS || 1000);
+  const mergesApplied = mergeStats.mergesApplied;
+  const mergesFailed = mergeStats.mergesFailed;
+  const mergesSkipped = mergeStats.mergesSkipped;
 
-  for (let i = 0; i < operations.length; i++) {
-    const { primaryId, mergeId, groupKey, matchType } = operations[i];
-    const current = i + 1;
-
-    progress?.log(`Reintento ${current}/${total}: ${mergeId} → ${primaryId}`);
-
-    const outcome = await mergeIntoPrimary(
-      client,
-      entityType,
-      primaryId,
-      mergeId,
-      alreadyMergedIds,
-      (msg) => progress?.log(msg),
-    );
-
-    const status =
-      outcome.status === 'merged'
-        ? 'merged'
-        : outcome.status === 'skipped'
-          ? 'skipped'
-          : 'failed';
-
-    results.push({
-      primaryId,
-      mergeId,
-      groupKey: groupKey || 'retry',
-      matchType: matchType || 'retry_failed',
-      status: outcome.status,
-      error: outcome.error,
-      canonicalId: outcome.canonicalId,
-      viaCanonical: outcome.viaCanonical,
-      correlationId: outcome.correlationId,
-      retried: true,
-    });
-
-    if (outcome.status === 'merged') mergesApplied += 1;
-    else if (outcome.status === 'skipped') mergesSkipped += 1;
-    else mergesFailed += 1;
-
-    progress?.mergeStep({
-      current,
-      total,
-      primaryId,
-      mergeId,
-      status,
-      error: outcome.error,
-    });
-
-    if (MERGE_DELAY_MS > 0 && current < total) {
-      await sleep(MERGE_DELAY_MS);
-    }
+  for (const row of results) {
+    row.retried = true;
   }
 
   const stats = {
@@ -286,8 +241,4 @@ export async function getFailedMergesSummary(projectId, outputDir) {
   } catch {
     return { count: 0, source: null, sourceRunId: null, sourceLabel: null };
   }
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -187,7 +187,7 @@ export function createHubSpotClient(token) {
             objectIdToMerge: String(mergeId),
           }),
         },
-        { maxAttempts: 2, retryBaseMs: 3000 },
+        { maxAttempts: 1 },
       );
     },
 

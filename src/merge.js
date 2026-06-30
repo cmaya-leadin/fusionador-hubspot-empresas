@@ -1,6 +1,16 @@
 import { normalizeDomain, isGenericEmailDomain } from './domain.js';
 import { parseMergeCriteria, getMinNameWords } from './merge-criteria.js';
 import {
+  MERGE_CONCURRENCY,
+  MERGE_DELAY_MS,
+  MERGE_MAX_ATTEMPTS,
+  MERGE_RETRY_BASE_MS,
+  MERGE_RETRY_MAX_MS,
+  MERGE_SETTLE_MS,
+  MERGE_SAME_PRIMARY_SETTLE_MS,
+  MERGE_SKIP_PREFLIGHT,
+} from './merge-config.js';
+import {
   isRecordExcludedFromMerge,
   splitMembersByGroupExclusions,
   usesGenericDomainExclusion,
@@ -806,10 +816,6 @@ export function extractForwardReferenceId(message) {
   return null;
 }
 
-const MERGE_DELAY_MS = Number(process.env.MERGE_DELAY_MS || 1000);
-const MERGE_SETTLE_MS = Number(process.env.MERGE_SETTLE_MS || 2000);
-const MERGE_MAX_ATTEMPTS = Number(process.env.MERGE_MAX_ATTEMPTS || 5);
-
 /**
  * @param {unknown} error
  */
@@ -843,17 +849,25 @@ async function contactExists(client, entityType, id) {
  * @param {'companies' | 'contacts'} entityType
  * @param {string} primaryId
  * @param {string} mergeId
- * @param {Set<string>} [alreadyMergedIds]
- * @param {(message: string) => void} [onLog]
+ * @param {{
+ *   alreadyMergedIds?: Set<string>,
+ *   verifiedPrimaries?: Set<string>,
+ *   settleMs?: number,
+ *   onLog?: (message: string) => void,
+ * }} [opts]
  */
 export async function mergeIntoPrimary(
   client,
   entityType,
   primaryId,
   mergeId,
-  alreadyMergedIds,
-  onLog,
+  opts = {},
 ) {
+  const alreadyMergedIds = opts.alreadyMergedIds;
+  const verifiedPrimaries = opts.verifiedPrimaries;
+  const onLog = opts.onLog;
+  const settleAfterMs = opts.settleMs ?? MERGE_SETTLE_MS;
+
   if (mergeId === primaryId) {
     return {
       status: 'skipped',
@@ -876,23 +890,30 @@ export async function mergeIntoPrimary(
       : (p, m) => client.mergeCompanies(p, m);
 
   try {
-    const secondary = await contactExists(client, entityType, mergeId);
-    if (!secondary) {
-      alreadyMergedIds?.add(mergeId);
-      return {
-        status: 'skipped',
-        mergeId,
-        error: 'El contacto secundario ya no existe (probablemente fusionado antes)',
-      };
+    if (!MERGE_SKIP_PREFLIGHT) {
+      const secondary = await contactExists(client, entityType, mergeId);
+      if (!secondary) {
+        alreadyMergedIds?.add(mergeId);
+        return {
+          status: 'skipped',
+          mergeId,
+          error: 'El contacto secundario ya no existe (probablemente fusionado antes)',
+        };
+      }
     }
 
-    const primary = await contactExists(client, entityType, primaryId);
-    if (!primary) {
-      return {
-        status: 'failed',
-        mergeId,
-        error: `El contacto principal ${primaryId} no existe en HubSpot`,
-      };
+    if (!verifiedPrimaries?.has(primaryId)) {
+      if (!MERGE_SKIP_PREFLIGHT) {
+        const primary = await contactExists(client, entityType, primaryId);
+        if (!primary) {
+          return {
+            status: 'failed',
+            mergeId,
+            error: `El contacto principal ${primaryId} no existe en HubSpot`,
+          };
+        }
+      }
+      verifiedPrimaries?.add(primaryId);
     }
 
     let lastError = null;
@@ -900,8 +921,8 @@ export async function mergeIntoPrimary(
       try {
         await mergeFn(primaryId, mergeId);
         alreadyMergedIds?.add(mergeId);
-        if (MERGE_SETTLE_MS > 0) {
-          await sleep(MERGE_SETTLE_MS);
+        if (settleAfterMs > 0) {
+          await sleep(settleAfterMs);
         }
         return { status: 'merged', mergeId, canonicalId: mergeId };
       } catch (error) {
@@ -916,12 +937,13 @@ export async function mergeIntoPrimary(
           break;
         }
 
-        const waitSec = attempt * 5;
+        const waitMs = Math.min(attempt * MERGE_RETRY_BASE_MS, MERGE_RETRY_MAX_MS);
+        const waitSec = Math.max(1, Math.round(waitMs / 1000));
         onLog?.(
           `Reintento ${attempt}/${MERGE_MAX_ATTEMPTS} para ${mergeId} → ${primaryId} en ${waitSec}s` +
             (correlationId ? ` (${correlationId})` : ''),
         );
-        await sleep(waitSec * 1000);
+        await sleep(waitMs);
       }
     }
 
@@ -1087,6 +1109,114 @@ export const MERGE_RESULTS_CSV_HEADERS = [
 
 /**
  * @param {import('./hubspot.js').HubSpotClient} client
+ * @param {'companies' | 'contacts'} entityType
+ * @param {Array<{ primaryId: string, mergeId: string, groupKey?: string, matchType?: string, matchLabel?: string }>} operations
+ * @param {{ onLog?: (msg: string) => void, onStep?: (data: object) => void }} [callbacks]
+ */
+export async function executeMergeOperations(client, entityType, operations, callbacks = {}) {
+  /** @type {Map<string, typeof operations>} */
+  const byPrimary = new Map();
+  for (const op of operations) {
+    if (!byPrimary.has(op.primaryId)) byPrimary.set(op.primaryId, []);
+    byPrimary.get(op.primaryId).push(op);
+  }
+
+  const primaryIds = [...byPrimary.keys()];
+  const total = operations.length;
+  const concurrency = Math.min(MERGE_CONCURRENCY, primaryIds.length);
+
+  if (concurrency > 1) {
+    callbacks.onLog?.(
+      `Modo paralelo: ${concurrency} colas (${primaryIds.length} principales distintos)`,
+    );
+  }
+
+  /** @type {Set<string>} */
+  const alreadyMergedIds = new Set();
+  /** @type {Set<string>} */
+  const verifiedPrimaries = new Set();
+
+  let progressCounter = 0;
+  /** @type {Array<Record<string, unknown>>} */
+  const results = [];
+  const stats = { mergesApplied: 0, mergesSkipped: 0, mergesFailed: 0 };
+
+  async function processPrimaryQueue(primaryId) {
+    const queue = byPrimary.get(primaryId) || [];
+
+    for (let i = 0; i < queue.length; i++) {
+      const op = queue[i];
+      const nextSamePrimary = i + 1 < queue.length;
+      const settleMs = nextSamePrimary ? MERGE_SAME_PRIMARY_SETTLE_MS : MERGE_SETTLE_MS;
+
+      progressCounter += 1;
+      const current = progressCounter;
+      callbacks.onLog?.(`Fusionando ${current}/${total}: ${op.mergeId} → ${op.primaryId}`);
+
+      const outcome = await mergeIntoPrimary(client, entityType, op.primaryId, op.mergeId, {
+        alreadyMergedIds,
+        verifiedPrimaries,
+        settleMs,
+        onLog: callbacks.onLog,
+      });
+
+      const status =
+        outcome.status === 'merged'
+          ? 'merged'
+          : outcome.status === 'skipped'
+            ? 'skipped'
+            : 'failed';
+
+      results.push({
+        primaryId: op.primaryId,
+        mergeId: op.mergeId,
+        groupKey: op.groupKey,
+        matchType: op.matchType,
+        matchLabel: op.matchLabel,
+        status: outcome.status,
+        error: outcome.error,
+        canonicalId: outcome.canonicalId,
+        viaCanonical: outcome.viaCanonical,
+        correlationId: outcome.correlationId,
+      });
+
+      if (outcome.status === 'merged') stats.mergesApplied += 1;
+      else if (outcome.status === 'skipped') stats.mergesSkipped += 1;
+      else stats.mergesFailed += 1;
+
+      callbacks.onStep?.({
+        current,
+        total,
+        primaryId: op.primaryId,
+        mergeId: op.mergeId,
+        status,
+        error: outcome.error,
+      });
+
+      if (MERGE_DELAY_MS > 0 && i + 1 < queue.length) {
+        await sleep(MERGE_DELAY_MS);
+      }
+    }
+  }
+
+  let nextPrimary = 0;
+
+  async function worker() {
+    while (true) {
+      const idx = nextPrimary;
+      nextPrimary += 1;
+      if (idx >= primaryIds.length) break;
+      await processPrimaryQueue(primaryIds[idx]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+  return { results, stats };
+}
+
+/**
+ * @param {import('./hubspot.js').HubSpotClient} client
  * @param {MergeRecord[]} records
  * @param {MergeOptions} options
  */
@@ -1153,69 +1283,26 @@ export async function runEntityMerge(client, records, options = {}) {
     return { dryRun: true, stats, groups: filteredGroups, results, criteria };
   }
 
-  const totalMerges = operations.length;
-  let mergeIndex = 0;
-  /** @type {Set<string>} */
-  const alreadyMergedIds = new Set();
-
   if (consolidatedSaved > 0) {
     options.onProgress?.log(
       `Plan consolidado: ${operations.length} fusiones (${consolidatedSaved} duplicadas entre reglas omitidas)`,
     );
   }
 
-  for (const operation of operations) {
-    const { primaryId, mergeId, groupKey, matchType } = operation;
-    mergeIndex += 1;
-    options.onProgress?.log(
-      `Fusionando ${mergeIndex}/${totalMerges}: ${mergeId} → ${primaryId}`,
-    );
+  const { results: mergeResults, stats: mergeStats } = await executeMergeOperations(
+    client,
+    entityType,
+    operations,
+    {
+      onLog: (msg) => options.onProgress?.log(msg),
+      onStep: (data) => options.onProgress?.mergeStep(data),
+    },
+  );
 
-    const outcome = await mergeIntoPrimary(
-      client,
-      entityType,
-      primaryId,
-      mergeId,
-      alreadyMergedIds,
-      (msg) => options.onProgress?.log(msg),
-    );
-
-    const status =
-      outcome.status === 'merged'
-        ? 'merged'
-        : outcome.status === 'skipped'
-          ? 'skipped'
-          : 'failed';
-
-    results.push({
-      primaryId,
-      mergeId,
-      groupKey,
-      matchType,
-      status: outcome.status,
-      error: outcome.error,
-      canonicalId: outcome.canonicalId,
-      viaCanonical: outcome.viaCanonical,
-      correlationId: outcome.correlationId,
-    });
-
-    if (outcome.status === 'merged') stats.mergesApplied += 1;
-    else if (outcome.status === 'skipped') stats.mergesSkipped += 1;
-    else stats.mergesFailed += 1;
-
-    options.onProgress?.mergeStep({
-      current: mergeIndex,
-      total: totalMerges,
-      primaryId,
-      mergeId,
-      status,
-      error: outcome.error,
-    });
-
-    if (MERGE_DELAY_MS > 0 && mergeIndex < totalMerges) {
-      await sleep(MERGE_DELAY_MS);
-    }
-  }
+  results.push(...mergeResults);
+  stats.mergesApplied = mergeStats.mergesApplied;
+  stats.mergesSkipped = mergeStats.mergesSkipped;
+  stats.mergesFailed = mergeStats.mergesFailed;
 
   return { dryRun: false, stats, groups: filteredGroups, results, criteria };
 }
