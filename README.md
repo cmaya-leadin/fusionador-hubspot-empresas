@@ -54,7 +54,7 @@ Datos persistentes en volúmenes Docker:
 1. En Portainer: **Stacks** → **Add stack**
 2. Nombre: `hubspot-fusionador`
 3. **Build method**: Repository
-4. Repository URL: `https://github.com/cmaya-leadin/hubspot-grupos-empresas`
+4. Repository URL: `https://github.com/cmaya-leadin/fusionador-hubspot-empresas`
 5. Compose path: `docker-compose.portainer.yml`
 6. Añade variables de entorno (o monta un `.env`):
 
@@ -70,8 +70,8 @@ Datos persistentes en volúmenes Docker:
 ### Opción B — Clonar en el VPS
 
 ```bash
-git clone https://github.com/cmaya-leadin/hubspot-grupos-empresas.git
-cd hubspot-grupos-empresas
+git clone https://github.com/cmaya-leadin/fusionador-hubspot-empresas.git
+cd fusionador-hubspot-empresas
 cp .env.example .env
 nano .env
 docker compose up -d --build
