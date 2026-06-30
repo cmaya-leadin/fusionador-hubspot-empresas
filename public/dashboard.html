@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tus Proyectos - HubSpot Fusionador</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-top">
+      <h1>Tus Proyectos</h1>
+      <div class="header-actions">
+        <a href="/guide.html" class="btn btn-secondary">Guía de Uso</a>
+        <a href="/admin.html" class="btn btn-primary hidden" id="adminBtn">Administración</a>
+        <button class="btn btn-primary" id="newProjectBtn">+ Nuevo Proyecto</button>
+        <button class="btn btn-outline" onclick="logout()">Cerrar Sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div id="loading" class="loading">Cargando proyectos…</div>
+    <div id="projectsGrid" class="cards-grid hidden"></div>
+    <div id="emptyState" class="empty-state hidden">
+      <h3>No tienes proyectos</h3>
+      <p>Crea tu primer proyecto para empezar a fusionar entidades de HubSpot.</p>
+      <button class="btn btn-primary" style="margin-top:16px" onclick="openModal()">+ Nuevo Proyecto</button>
+    </div>
+  </main>
+
+  <div class="modal-overlay hidden" id="projectModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Nuevo Proyecto</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="projectForm">
+          <div class="form-group">
+            <label for="projectName">Nombre del Proyecto</label>
+            <input type="text" id="projectName" required>
+          </div>
+          <div class="form-group">
+            <label for="hubspotAccount">Cuenta de HubSpot</label>
+            <input type="text" id="hubspotAccount" placeholder="Nombre del portal">
+          </div>
+          <div class="form-group">
+            <label for="hubspotToken">Access Token de HubSpot (PAT)</label>
+            <input type="password" id="hubspotToken" placeholder="pat-na1-...">
+          </div>
+          <div class="form-group">
+            <label for="entityType">Tipo de Entidad</label>
+            <select id="entityType">
+              <option value="companies">Empresas</option>
+              <option value="contacts">Contactos</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="saveProjectBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    let currentUser = null;
+
+    async function init() {
+      currentUser = await requireAuth();
+      if (!currentUser) return;
+
+      if (currentUser.role === 'admin') {
+        document.getElementById('adminBtn').classList.remove('hidden');
+      }
+
+      document.getElementById('newProjectBtn').onclick = openModal;
+      document.getElementById('saveProjectBtn').onclick = saveProject;
+
+      await loadProjects();
+    }
+
+    async function loadProjects() {
+      const loading = document.getElementById('loading');
+      const grid = document.getElementById('projectsGrid');
+      const empty = document.getElementById('emptyState');
+
+      try {
+        const { projects } = await API.getProjects();
+        loading.classList.add('hidden');
+
+        if (!projects.length) {
+          grid.classList.add('hidden');
+          grid.innerHTML = '';
+          empty.classList.remove('hidden');
+          return;
+        }
+
+        empty.classList.add('hidden');
+        grid.classList.remove('hidden');
+        grid.innerHTML = projects.map((p) => `
+          <div class="project-card" data-project-id="${p.id}">
+            <h3>${escapeHtml(p.name) || '(sin nombre)'}</h3>
+            <p class="meta">${escapeHtml(p.hubspotAccount || 'Sin cuenta')}</p>
+            <p class="meta">Entidad: ${entityLabel(p.entityType)}</p>
+            ${currentUser.role === 'admin' ? `<p class="meta">Usuario: ${escapeHtml(p.ownerUsername)}</p>` : ''}
+            <div class="card-footer" style="display:flex;justify-content:space-between;align-items:center">
+              <button type="button" class="link-action btn-delete" style="background:none;border:none;cursor:pointer;color:#dc2626;font-weight:600;font-size:14px">Eliminar</button>
+              <a href="/project.html?id=${p.id}" class="link-action">Ver Proyecto →</a>
+            </div>
+          </div>
+        `).join('');
+
+        grid.querySelectorAll('.btn-delete').forEach((btn) => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const card = btn.closest('[data-project-id]');
+            const id = Number(card?.dataset.projectId);
+            const name = card?.querySelector('h3')?.textContent || '';
+            await deleteProjectCard(id, name);
+          });
+        });
+      } catch (err) {
+        loading.textContent = 'Error: ' + err.message;
+      }
+    }
+
+    function openModal() {
+      document.getElementById('modalTitle').textContent = 'Nuevo Proyecto';
+      document.getElementById('projectForm').reset();
+      document.getElementById('projectModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('projectModal').classList.add('hidden');
+    }
+
+    async function saveProject() {
+      const name = document.getElementById('projectName').value.trim();
+      const hubspotAccount = document.getElementById('hubspotAccount').value.trim();
+      const hubspotToken = document.getElementById('hubspotToken').value.trim();
+      const entityType = document.getElementById('entityType').value;
+
+      if (!name) return alert('Nombre requerido');
+      if (!hubspotToken) return alert('Token de HubSpot requerido');
+
+      try {
+        const { project } = await API.createProject({
+          name, hubspotAccount, hubspotToken, entityType,
+        });
+        closeModal();
+        window.location.href = `/project.html?id=${project.id}`;
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function deleteProjectCard(id, name) {
+      const label = name || `Proyecto #${id}`;
+      if (!confirm(`¿Eliminar "${label}"? Esta acción no se puede deshacer.`)) return;
+      try {
+        await API.deleteProject(id);
+        await loadProjects();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>

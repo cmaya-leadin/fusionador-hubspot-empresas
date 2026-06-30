@@ -1,111 +1,121 @@
-# HubSpot — Grupos de empresas
+# HubSpot Fusionador de Entidades
 
-Script para ~79.000 empresas con **estrategia en capas** (de más fiable a más arriesgada).
+Herramienta web para detectar y fusionar entidades duplicadas en HubSpot (empresas y contactos) con criterios personalizables, simulación previa y panel de administración.
 
-## Estrategia para todo el portal (minimizar errores)
+## Características
 
-| Nivel | Mecanismo | Confianza | Qué hace |
-|-------|-----------|-----------|----------|
-| 1 | **Dominio exacto** | 100 | `acme.es` + `acme.es` → mismo grupo |
-| 2 | **Dominio raíz** (HubSpot) | 100 | Usa campo `dominio_raiz` si está relleno |
-| 3 | **Auto multi-TLD** (`agrupacion.json`) | 75 | `acme.it` + `acme.de` + `acme.com` → `acme.com` **solo si** hay ≥2 TLD distintos y ≥2 empresas |
-| 4 | **corporativos.json** | 95 | Excepciones: dominios distintos que son la misma familia (Resinex → Ravago) |
-| 5 | **grupos_manuales.csv** | 90 | Casos puntuales por `company_id` |
-| — | **Bloqueados** | — | `gmail.com`, `live.com`, etc. **nunca** agrupan |
+- **Autenticación** con usuario y contraseña
+- **Proyectos** por usuario con token HubSpot propio
+- **Criterios de fusión** configurables desde el dashboard
+- **Simulación** con vista previa del objeto fusionado (sin modificar HubSpot)
+- **Fusión real** con progreso en tiempo real y **reintento de fallos**
+- **Roles**: admin (ve todos los proyectos) y usuario (solo los suyos)
+- **Sistema de logs** en tiempo real
+- **Guía de uso** integrada
 
-### Por qué no hace falta 79.000 entradas en JSON
+## Requisitos
 
-- **Ravago.it / .es / .be** se unen solas si existen varias TLD en el portal (regla auto).
-- **corporativos.json** solo lista **excepciones** (marcas distintas del mismo grupo: `resinex.com` → `ravago.com`).
-- Slugs cortos o genéricos (`group`, `mail`) están en **lista de bloqueo**.
+- Node.js ≥ 18 (o Docker)
+- Private App de HubSpot con scopes:
+  - `crm.objects.companies.read` / `write`
+  - `crm.objects.contacts.read` / `write`
 
-### Ejecución recomendada
-
-```bash
-# 1) Informe global + solo grupos de alta confianza (dominio exacto + corporativo)
-npm run dry-run:seguro
-
-# 2) Revisar CSV: grupos_propuestos.csv (columna key_source)
-
-# 3) Prueba acotada
-npm run ravago:dry-run
-
-# 4) Aplicar prueba
-npm run test:apply
-
-# 5) Masivo solo tras validar
-node src/index.js --apply --confirm-full-run --min-confidence 90
-```
-
-`--min-confidence 90` **excluye** grupos que dependen solo de auto multi-TLD (75) o email (80).
-
-Para incluir también multi-TLD automático:
-
-```bash
-node src/index.js --dry-run --min-confidence 75
-```
-
-## Archivos de configuración
-
-| Archivo | Uso |
-|---------|-----|
-| `agrupacion.json` | Umbrales globales: longitud mínima slug, TLDs mínimos, slugs bloqueados |
-| `corporativos.json` | **Solo excepciones** corporativas (no una entrada por empresa) |
-| `grupos_manuales.csv` | Overrides por ID |
-
-## Instalación y uso
-
-Ver secciones anteriores del README: `.env`, `--revert`, propiedades HubSpot, etc.
+## Instalación local
 
 ```bash
 npm install
-npm run dry-run:seguro
-npm run revert:test
+cp .env.example .env
+# Edita .env: SESSION_SECRET y ADMIN_PASSWORD
+npm start
 ```
 
-## Revertir
+Abre http://localhost:3000
+
+**Usuario por defecto:** `admin` / contraseña definida en `ADMIN_PASSWORD`.
+
+## Docker (local)
 
 ```bash
-node src/index.js --revert --from output/cambios_aplicados_prueba.csv
+cp .env.example .env
+# Edita .env con secretos fuertes
+docker compose up -d --build
 ```
 
-## Fusión de empresas duplicadas
+La app queda en http://localhost:3000
 
-Fusiona empresas con **nombre o dominio coincidente** (omite `inactive` y solo `proveedor`).
+Datos persistentes en volúmenes Docker:
+- `fusionador_data` — base SQLite
+- `fusionador_output` — CSV de fusiones
 
-Reglas corregidas:
-- Agrupación **directa** (sin union-find transitivo)
-- Empresas **sin nombre** no se agrupan por nombre
-- Fusión **en cadena** con reintento por ID canónico de HubSpot
-- CSV de resultados con errores en `output/fusiones_resultados_*.csv`
+## Despliegue en VPS con Portainer
 
-### Ejecución recomendada
+### Opción A — Stack desde repositorio Git
+
+1. En Portainer: **Stacks** → **Add stack**
+2. Nombre: `hubspot-fusionador`
+3. **Build method**: Repository
+4. Repository URL: `https://github.com/cmaya-leadin/hubspot-grupos-empresas`
+5. Compose path: `docker-compose.portainer.yml`
+6. Añade variables de entorno (o monta un `.env`):
+
+| Variable | Descripción |
+|----------|-------------|
+| `SESSION_SECRET` | Secreto largo y aleatorio (obligatorio) |
+| `ADMIN_PASSWORD` | Contraseña inicial del admin |
+| `SESSION_COOKIE_SECURE` | `true` si usas HTTPS delante del contenedor |
+| `TRUST_PROXY` | `true` detrás de Nginx/Traefik (por defecto) |
+
+7. **Deploy the stack**
+
+### Opción B — Clonar en el VPS
 
 ```bash
-# 1) Informe global (no modifica HubSpot, ~4 min)
-npm run merge:dry-run
-
-# 2) Revisar CSV en output/fusiones_propuestas_*.csv
-
-# 3) Prueba acotada (5 grupos)
-npm run merge:test
-
-# 4) Prueba con filtro
-npm run merge:dry-run -- --dominio acme --max-grupos 10
-
-# 5) Aplicar prueba acotada
-npm run merge:apply:test -- --dominio acme
-
-# 6) Masivo solo tras validar
-npm run merge:apply
+git clone https://github.com/cmaya-leadin/hubspot-grupos-empresas.git
+cd hubspot-grupos-empresas
+cp .env.example .env
+nano .env
+docker compose up -d --build
 ```
 
-| Script npm | Qué hace |
-|------------|----------|
-| `merge:dry-run` | Previsualiza todas las fusiones posibles |
-| `merge:test` | Dry-run limitado a 5 grupos |
-| `merge:apply:test` | Aplica fusiones (máx. 5 grupos) |
-| `merge:apply` | Fusión masiva (`--confirm-full-run`) |
-| `merge:server` | Servidor HTTP en `:3000` (opcional) |
+### Reverse proxy (recomendado)
 
-Opciones extra tras `--`: `--dominio`, `--nombre`, `--ids`, `--max-grupos`.
+Expón el puerto 3000 solo internamente y pon Nginx/Traefik con HTTPS delante. Con TLS activo:
+
+```env
+SESSION_COOKIE_SECURE=true
+TRUST_PROXY=true
+```
+
+## Uso
+
+1. Inicia sesión y crea un proyecto.
+2. Configura el token PAT de HubSpot y el tipo de entidad.
+3. Ajusta los **Criterios de fusión**.
+4. Ejecuta **Simular Fusión** para ver grupos y vista previa.
+5. Si todo es correcto, **Aplicar Fusión**.
+6. Si hay errores, usa **Reintentar fallos**.
+
+## Estructura
+
+```
+src/
+  server.js          # Servidor Express
+  db.js              # SQLite (usuarios, proyectos, logs)
+  merge.js           # Motor de fusión
+  merge-retry.js     # Reintento de fusiones fallidas
+  hubspot.js         # Cliente API HubSpot
+public/              # Frontend (HTML/CSS/JS)
+data/                # Base de datos SQLite (volumen Docker)
+output/              # CSV exportados (volumen Docker)
+```
+
+## Seguridad
+
+- Los tokens HubSpot se almacenan cifrados (AES-256-GCM).
+- La fusión masiva sin filtros está bloqueada por defecto.
+- Cambia `SESSION_SECRET` y `ADMIN_PASSWORD` en producción.
+- No subas `.env` al repositorio.
+
+## Licencia
+
+Uso interno — Leadin

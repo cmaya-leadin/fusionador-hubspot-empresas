@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proyecto - HubSpot Fusionador</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="breadcrumb">
+      <a href="/dashboard.html">Proyectos</a> / <span id="breadcrumbName">…</span>
+    </div>
+    <div class="header-top">
+      <h1 id="projectTitle">…</h1>
+      <div class="header-actions">
+        <a href="/guide.html" class="btn btn-primary btn-sm">Guía de Uso</a>
+        <button class="btn btn-outline" onclick="logout()">Cerrar Sesión</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="action-bar">
+    <button class="btn btn-outline btn-sm" id="testConnBtn">Probar Conexión</button>
+    <button class="btn btn-outline btn-sm" id="configBtn">⚙ Configurar Proyecto</button>
+    <button class="btn btn-primary btn-sm" id="criteriaBtn">Criterios de Fusión</button>
+    <button class="btn btn-primary btn-sm" id="simulateBtn">Simular Fusión</button>
+    <button class="btn btn-orange btn-sm" id="applyBtn">Aplicar Fusión</button>
+    <button class="btn btn-outline btn-sm" id="retryFailedBtn" title="Reintenta solo las fusiones fallidas de la última ejecución">↻ Reintentar fallos</button>
+    <button class="btn btn-danger btn-sm" id="deleteProjectBtn">Eliminar Proyecto</button>
+  </div>
+
+  <main class="main">
+    <div class="panel merge-progress-panel hidden" id="mergeProgressPanel">
+      <div class="panel-header">
+        <h2 id="mergeProgressTitle">Proceso de fusión</h2>
+        <span class="merge-progress-status running" id="mergeProgressStatus">En curso…</span>
+      </div>
+      <div class="panel-body">
+        <div class="merge-progress-meta">
+          <span id="mergeProgressEta">Calculando tiempo estimado…</span>
+          <span id="mergeProgressPercent">0%</span>
+        </div>
+        <div class="merge-progress-track">
+          <div class="merge-progress-bar" id="mergeProgressBar"></div>
+        </div>
+        <p class="merge-progress-message" id="mergeProgressMessage">Preparando…</p>
+        <div class="merge-progress-stats" id="mergeProgressStats"></div>
+        <div class="merge-progress-log-wrap">
+          <div class="merge-progress-log-header">Registro de actividad</div>
+          <div class="merge-progress-log" id="mergeProgressLog"></div>
+        </div>
+        <div class="merge-progress-summary hidden" id="mergeProgressSummary"></div>
+      </div>
+    </div>
+
+    <div class="panel" id="criteriaPanel">
+      <div class="panel-header">
+        <h2>Criterios de fusión</h2>
+        <button class="btn btn-primary btn-sm" id="saveCriteriaPanelBtn">Guardar criterios</button>
+      </div>
+      <div class="panel-body criteria-panel-body" id="criteriaEditor">
+        <p class="criteria-hint">
+          Solo se fusionan registros donde <strong>todas</strong> las propiedades de cada regla coincidan.
+          Ejemplo: <code>name, email</code> fusiona dos "David" solo si también tienen el mismo email.
+        </p>
+
+        <div class="criteria-section-title">Reglas de coincidencia</div>
+        <div id="matchRulesList" class="criteria-rules-list"></div>
+        <div class="criteria-add-row">
+          <button type="button" class="btn btn-secondary btn-sm" id="addMatchRuleBtn">+ Regla personalizada</button>
+          <select id="matchPresetSelect" class="criteria-preset-select"></select>
+        </div>
+
+        <div class="criteria-section-title" style="margin-top:28px">Reglas de predominancia</div>
+        <p class="criteria-hint">Orden de prioridad para el registro principal. La primera regla que desempate gana.</p>
+        <div id="primaryRulesList" class="criteria-rules-list"></div>
+        <div class="criteria-add-row">
+          <button type="button" class="btn btn-secondary btn-sm" id="addPrimaryRuleBtn">+ Añadir regla</button>
+        </div>
+
+        <div class="criteria-section-title" style="margin-top:24px">Exclusiones</div>
+        <div class="form-check">
+          <input type="checkbox" id="critSkipInactive">
+          <label for="critSkipInactive">Omitir inactivos</label>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="critSkipProveedor">
+          <label for="critSkipProveedor">Omitir solo proveedor (empresas)</label>
+        </div>
+        <div class="form-check">
+          <input type="checkbox" id="critExcludeGeneric">
+          <label for="critExcludeGeneric">Excluir dominios genéricos (gmail, etc.)</label>
+        </div>
+
+        <div id="criteriaSaveStatus"></div>
+        <div id="criteriaSummary" style="margin-top:20px"></div>
+      </div>
+    </div>
+
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card">
+        <div class="value" id="statGroups">-</div>
+        <div class="label">Grupos detectados</div>
+        <div class="sub" id="statGroupsSub">Ejecuta una simulación</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="statMerges">-</div>
+        <div class="label">Fusiones planificadas</div>
+        <div class="sub" id="statMergesSub"></div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="statEntity">-</div>
+        <div class="label">Tipo de entidad</div>
+        <div class="sub" id="statAccount"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="filter-bar">
+        <label>Filtro:</label>
+        <input type="text" id="filterDominio" placeholder="Dominio o email…">
+        <input type="text" id="filterNombre" placeholder="Buscar por nombre…">
+        <input type="number" id="filterMaxGroups" placeholder="Máx. grupos" min="1" style="max-width:120px">
+        <span id="resultCount" style="font-size:13px;color:#6b7280"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Clave</th>
+              <th>Tipo</th>
+              <th>Principal</th>
+              <th>Registros</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="groupsTable">
+            <tr><td colspan="5" class="loading">Sin datos. Ejecuta una simulación.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" id="logsPanel">
+      <div class="panel-header">
+        <h2>🔍 Logs de Integración (Tiempo Real)</h2>
+        <button class="btn btn-primary btn-sm" id="refreshLogsBtn">↻ Actualizar</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Usuario</th>
+              <th>Acción</th>
+              <th>Estado</th>
+              <th>Mensaje</th>
+            </tr>
+          </thead>
+          <tbody id="logsTable"></tbody>
+        </table>
+      </div>
+      <div class="logs-footer">Actualización automática cada 10 segundos</div>
+    </div>
+  </main>
+
+  <!-- Config Modal -->
+  <div class="modal-overlay hidden" id="configModal">
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <h2>Configurar Proyecto</h2>
+        <button class="modal-close" onclick="closeConfig()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Nombre del Proyecto</label>
+          <input type="text" id="cfgName">
+        </div>
+        <div class="form-group">
+          <label>Cuenta de HubSpot</label>
+          <input type="text" id="cfgAccount">
+        </div>
+        <div class="form-group">
+          <label>Access Token de HubSpot (PAT)</label>
+          <input type="password" id="cfgToken" placeholder="Déjalo vacío para mantener el token actual">
+        </div>
+        <div class="form-group">
+          <label>Tipo de Entidad</label>
+          <select id="cfgEntity">
+            <option value="companies">Empresas</option>
+            <option value="contacts">Contactos</option>
+          </select>
+          <small style="color:#6b7280">Al cambiar el tipo, actualiza las reglas predefinidas en el panel de criterios.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeConfig()">Cancelar</button>
+        <button class="btn btn-primary" id="saveConfigBtn">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Simulation Detail Modal -->
+  <div class="modal-overlay hidden" id="simModal">
+    <div class="modal" style="max-width:800px">
+      <div class="modal-header">
+        <h2 id="simTitle">Objeto Fusionado Simulado</h2>
+        <button class="modal-close" onclick="closeSim()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="tabs">
+          <button class="tab active" data-simtab="preview">Vista Previa</button>
+          <button class="tab" data-simtab="records">Registros Originales</button>
+          <button class="tab" data-simtab="json">JSON Técnico</button>
+        </div>
+        <div class="tab-content active" id="simtab-preview"></div>
+        <div class="tab-content" id="simtab-records"></div>
+        <div class="tab-content" id="simtab-json"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/merge-progress-ui.js"></script>
+  <script src="/js/criteria-ui.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('id');
+    let project = null;
+    let lastResult = null;
+    let logsInterval = null;
+    let failedMergesSummary = { count: 0 };
+
+    if (!projectId) window.location.href = '/dashboard.html';
+
+    async function init() {
+      await requireAuth();
+      await loadProject();
+      setupTabs();
+      setupCriteriaEditor(project, projectId, loadLogs);
+      setupEvents();
+      await refreshFailedMergesButton();
+      await loadLogs();
+      logsInterval = setInterval(loadLogs, 10000);
+    }
+
+    async function loadProject() {
+      const { project: p } = await API.getProject(projectId);
+      project = p;
+      document.getElementById('projectTitle').textContent = p.name || 'Proyecto sin nombre';
+      document.getElementById('breadcrumbName').textContent = p.name || 'Proyecto';
+      document.getElementById('statEntity').textContent = entityLabel(p.entityType);
+      document.getElementById('statAccount').textContent = p.hubspotAccount || 'Sin cuenta';
+      document.title = `${p.name || 'Proyecto'} - HubSpot Fusionador`;
+      loadCriteriaForm(p.mergeCriteria, p.entityType);
+    }
+
+    function setupTabs() {
+      document.querySelectorAll('#simModal .tab').forEach((tab) => {
+        tab.onclick = () => {
+          document.querySelectorAll('#simModal .tab').forEach((t) => t.classList.remove('active'));
+          document.querySelectorAll('#simModal .tab-content').forEach((c) => c.classList.remove('active'));
+          tab.classList.add('active');
+          document.getElementById('simtab-' + tab.dataset.simtab).classList.add('active');
+        };
+      });
+    }
+
+    function setupEvents() {
+      document.getElementById('testConnBtn').onclick = testConnection;
+      document.getElementById('configBtn').onclick = openConfig;
+      document.getElementById('criteriaBtn').onclick = scrollToCriteria;
+      document.getElementById('saveConfigBtn').onclick = saveConfig;
+      document.getElementById('simulateBtn').onclick = runSimulate;
+      document.getElementById('applyBtn').onclick = runApply;
+      document.getElementById('retryFailedBtn').onclick = runRetryFailed;
+      document.getElementById('refreshLogsBtn').onclick = loadLogs;
+      document.getElementById('deleteProjectBtn').onclick = deleteProject;
+      document.getElementById('cfgEntity').onchange = (e) => {
+        updateMatchPresets(e.target.value);
+      };
+    }
+
+    async function deleteProject() {
+      if (!project) return;
+      const label = project.name || `Proyecto #${projectId}`;
+      if (!confirm(`¿Eliminar "${label}"? Esta acción no se puede deshacer.`)) return;
+
+      const btn = document.getElementById('deleteProjectBtn');
+      btn.disabled = true;
+      try {
+        await API.deleteProject(projectId);
+        window.location.href = '/dashboard.html';
+      } catch (err) {
+        alert('Error al eliminar: ' + err.message);
+        btn.disabled = false;
+      }
+    }
+
+    function getFilters() {
+      const f = {};
+      const dominio = document.getElementById('filterDominio').value.trim();
+      const nombre = document.getElementById('filterNombre').value.trim();
+      const max = document.getElementById('filterMaxGroups').value;
+      if (dominio) f.dominio = dominio;
+      if (nombre) f.nombre = nombre;
+      if (max) f.maxGroups = Number(max);
+      return f;
+    }
+
+    async function testConnection() {
+      const btn = document.getElementById('testConnBtn');
+      btn.disabled = true;
+      try {
+        const res = await API.testConnection(projectId);
+        alert(res.message || 'Conexión exitosa');
+      } catch (err) {
+        alert('Error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        loadLogs();
+      }
+    }
+
+    async function refreshFailedMergesButton() {
+      const btn = document.getElementById('retryFailedBtn');
+      try {
+        failedMergesSummary = await API.getFailedMerges(projectId);
+        const n = failedMergesSummary.count || 0;
+        btn.disabled = n === 0;
+        btn.textContent = n > 0 ? `↻ Reintentar fallos (${n})` : '↻ Reintentar fallos';
+        btn.title = n > 0
+          ? `Reintentar ${n} fusiones fallidas (${failedMergesSummary.sourceLabel || 'última ejecución'})`
+          : 'No hay fusiones fallidas pendientes';
+      } catch {
+        btn.disabled = true;
+      }
+    }
+
+    async function runMergeJob(action) {
+      const isApply = action === 'apply';
+      const isRetry = action === 'retry';
+      if (isApply && !confirm('¿Aplicar fusiones REALES en HubSpot? Esta acción no se puede deshacer.')) return;
+
+      const filters = getFilters();
+      if (isApply && !filters.dominio && !filters.nombre && !filters.maxGroups) {
+        if (!confirm('No hay filtros activos. La fusión masiva está bloqueada por seguridad. ¿Deseas continuar con confirmFullRun?')) return;
+        filters.confirmFullRun = true;
+      }
+
+      const simBtn = document.getElementById('simulateBtn');
+      const applyBtn = document.getElementById('applyBtn');
+      const retryBtn = document.getElementById('retryFailedBtn');
+      simBtn.disabled = true;
+      applyBtn.disabled = true;
+      retryBtn.disabled = true;
+      if (isApply) applyBtn.textContent = 'Aplicando…';
+      else if (!isRetry) simBtn.textContent = 'Simulando…';
+
+      MergeProgressUI.show(isRetry ? 'retry' : isApply ? 'apply' : 'simulate');
+
+      try {
+        const streamHandlers = {
+          onProgress: (data) => MergeProgressUI.onProgress(data),
+          onLog: (data) => MergeProgressUI.onLog(data),
+        };
+
+        if (isRetry) {
+          lastResult = await API.retryFailedWithStream(projectId, {}, streamHandlers);
+        } else {
+          lastResult = await API.mergeWithStream(projectId, action, filters, streamHandlers);
+        }
+
+        MergeProgressUI.onComplete(lastResult);
+        if (isRetry) updateRetryStats(lastResult);
+        else renderResults(lastResult);
+        await refreshFailedMergesButton();
+        loadLogs();
+      } catch (err) {
+        MergeProgressUI.onError(err.message);
+        alert('Error: ' + err.message);
+        loadLogs();
+      } finally {
+        simBtn.disabled = false;
+        applyBtn.disabled = false;
+        simBtn.textContent = 'Simular Fusión';
+        applyBtn.textContent = 'Aplicar Fusión';
+        await refreshFailedMergesButton();
+      }
+    }
+
+    function updateRetryStats(result) {
+      const stats = result.stats || {};
+      document.getElementById('statGroups').textContent = stats.mergesPlanned || 0;
+      document.getElementById('statGroupsSub').textContent =
+        result.stats?.retrySource ? `Reintento · ${result.stats.retrySource}` : 'Reintento de fusiones fallidas';
+      document.getElementById('statMerges').textContent = stats.mergesApplied ?? 0;
+      document.getElementById('statMergesSub').textContent =
+        `${stats.mergesFailed || 0} fallidas, ${stats.mergesSkipped || 0} omitidas`;
+      document.getElementById('resultCount').textContent =
+        `Reintento: ${stats.mergesApplied || 0} aplicadas de ${stats.mergesPlanned || 0}`;
+    }
+
+    async function runRetryFailed() {
+      const n = failedMergesSummary.count || 0;
+      if (!n) {
+        alert('No hay fusiones fallidas para reintentar.');
+        return;
+      }
+      const label = failedMergesSummary.sourceLabel || 'la última ejecución';
+      if (!confirm(`¿Reintentar ${n} fusiones fallidas de ${label}?`)) return;
+      await runMergeJob('retry');
+    }
+
+    async function runSimulate() {
+      await runMergeJob('simulate');
+    }
+
+    async function runApply() {
+      await runMergeJob('apply');
+    }
+
+    function renderResults(result) {
+      const stats = result.stats;
+      document.getElementById('statGroups').textContent = stats.mergeGroups;
+      let sub = `${stats.eligibleRecords} elegibles de ${stats.totalRecords}`;
+      if (stats.recordsWithNameAndPhone != null && stats.recordsWithNameAndPhone > 0) {
+        sub += ` · ${stats.recordsWithNameAndPhone} con nombre+telf.`;
+      } else if (stats.recordsWithPhone != null) {
+        sub += ` · ${stats.recordsWithPhone || 0} con teléfono`;
+      }
+      document.getElementById('statGroupsSub').textContent = sub;
+      document.getElementById('statMerges').textContent = stats.mergesPlanned;
+      document.getElementById('statMergesSub').textContent =
+        result.dryRun ? 'Simulación (sin cambios)' :
+        `${stats.mergesApplied} aplicadas, ${stats.mergesFailed} fallidas`;
+
+      const groups = result.groups || [];
+      document.getElementById('resultCount').textContent = `Mostrando ${groups.length} grupos`;
+
+      const tbody = document.getElementById('groupsTable');
+      if (!groups.length) {
+        let hint = 'No se detectaron grupos con las reglas actuales.';
+        if (stats.totalRecords > 0 && stats.recordsWithNameAndPhone === 0) {
+          hint += ' Ningún contacto tiene nombre y teléfono rellenos a la vez — prueba regla solo Teléfono o Email.';
+        } else if (stats.recordsWithNameAndPhone > 0) {
+          hint += ' Hay contactos con nombre+telf. pero ningún par coincide exactamente.';
+        }
+        tbody.innerHTML = `<tr><td colspan="5">${escapeHtml(hint)}</td></tr>`;
+        return;
+      }
+
+      const sims = result.simulations || [];
+      tbody.innerHTML = groups.map((g, i) => `
+        <tr>
+          <td>${escapeHtml(g.matchKey)}</td>
+          <td>${escapeHtml(g.matchLabel || g.matchType)}</td>
+          <td>${escapeHtml(g.primaryName)} <small>(${g.primaryId})</small></td>
+          <td>${g.records?.length || g.mergeIds.length + 1}</td>
+          <td>
+            <button class="btn btn-orange btn-sm" onclick="showSimulation(${i})">Ver Simulación</button>
+          </td>
+        </tr>
+      `).join('');
+
+      window._sims = sims;
+      window._groups = groups;
+    }
+
+    function showSimulation(index) {
+      const sim = window._sims?.[index];
+      const group = window._groups?.[index];
+      if (!sim) return;
+
+      document.getElementById('simTitle').textContent =
+        `Fusión simulada: ${group.matchKey}`;
+
+      const props = sim.simulated?.properties || {};
+      const sources = sim.simulated?.sources || {};
+
+      let previewHtml = '<h3 style="margin-bottom:12px;color:#1e2a4a">Registro principal resultante</h3>';
+      previewHtml += `<p><strong>ID principal:</strong> ${sim.simulated?.id}</p>`;
+      previewHtml += '<div class="sim-detail"><table><tbody>';
+      for (const [key, val] of Object.entries(props)) {
+        const from = sources[key] ? ` <small style="color:#6b7280">(de ${sources[key]})</small>` : '';
+        previewHtml += `<tr><td style="font-weight:600;padding:4px 8px">${escapeHtml(key)}</td><td style="padding:4px 8px">${escapeHtml(String(val))}${from}</td></tr>`;
+      }
+      previewHtml += '</tbody></table></div>';
+
+      document.getElementById('simtab-preview').innerHTML = previewHtml;
+
+      let recordsHtml = '<div class="sim-detail">';
+      for (const r of (sim.records || [])) {
+        const isPrimary = r.id === sim.primaryId;
+        recordsHtml += `<h4 style="margin:12px 0 4px">${isPrimary ? '★ ' : ''}${escapeHtml(r.name)} (${r.id})</h4>`;
+        recordsHtml += `<pre>${escapeHtml(JSON.stringify(r.properties, null, 2))}</pre>`;
+      }
+      recordsHtml += '</div>';
+      document.getElementById('simtab-records').innerHTML = recordsHtml;
+
+      document.getElementById('simtab-json').innerHTML =
+        `<div class="sim-detail"><pre>${escapeHtml(JSON.stringify(sim, null, 2))}</pre></div>`;
+
+      document.querySelectorAll('#simModal .tab').forEach((t, i) => {
+        t.classList.toggle('active', i === 0);
+      });
+      document.querySelectorAll('#simModal .tab-content').forEach((c, i) => {
+        c.classList.toggle('active', i === 0);
+      });
+
+      document.getElementById('simModal').classList.remove('hidden');
+    }
+
+    function closeSim() {
+      document.getElementById('simModal').classList.add('hidden');
+    }
+
+    function openConfig() {
+      document.getElementById('cfgName').value = project.name || '';
+      document.getElementById('cfgAccount').value = project.hubspotAccount || '';
+      document.getElementById('cfgToken').value = '';
+      document.getElementById('cfgEntity').value = project.entityType;
+      document.getElementById('configModal').classList.remove('hidden');
+    }
+
+    function closeConfig() {
+      document.getElementById('configModal').classList.add('hidden');
+    }
+
+    async function saveConfig() {
+      const entityType = document.getElementById('cfgEntity').value;
+      const payload = {
+        name: document.getElementById('cfgName').value.trim(),
+        hubspotAccount: document.getElementById('cfgAccount').value.trim(),
+        entityType,
+      };
+      const token = document.getElementById('cfgToken').value.trim();
+      if (token) payload.hubspotToken = token;
+
+      try {
+        const { project: p } = await API.updateProject(projectId, payload);
+        project = p;
+        document.getElementById('projectTitle').textContent = p.name || 'Proyecto sin nombre';
+        document.getElementById('breadcrumbName').textContent = p.name || 'Proyecto';
+        document.getElementById('statEntity').textContent = entityLabel(p.entityType);
+        if (project.entityType !== p.entityType) {
+          loadCriteriaForm(p.mergeCriteria, p.entityType);
+        }
+        updateMatchPresets(p.entityType);
+        closeConfig();
+        loadLogs();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function loadLogs() {
+      try {
+        const { logs } = await API.getLogs({ projectId, limit: 50 });
+        const tbody = document.getElementById('logsTable');
+        tbody.innerHTML = logs.map((l) => `
+          <tr>
+            <td>${formatDate(l.created_at)}</td>
+            <td>${escapeHtml(l.username || '-')}</td>
+            <td>${escapeHtml(l.action)}</td>
+            <td>${statusBadge(l.status)}</td>
+            <td>${escapeHtml(l.message)}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="5">Sin logs</td></tr>';
+      } catch {}
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>

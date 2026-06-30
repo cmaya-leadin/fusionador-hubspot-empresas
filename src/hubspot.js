@@ -1,23 +1,4 @@
-import { hubspotProps, rootDomainProp } from './config.js';
-
 const BASE_URL = 'https://api.hubapi.com';
-
-const COMPANY_PROPERTIES = [
-  'name',
-  'domain',
-  rootDomainProp,
-  'email_de_empresa',
-  'vat_number___cif',
-  'phone',
-  'address',
-  hubspotProps.pertenece,
-  hubspotProps.groupKey,
-  hubspotProps.groupConfidence,
-  hubspotProps.groupReviewStatus,
-  hubspotProps.hubCompanyId,
-  hubspotProps.grupoScriptRunId,
-  'createdate',
-].filter(Boolean);
 
 export const MERGE_COMPANY_PROPERTIES = [
   'name',
@@ -37,13 +18,32 @@ export const MERGE_COMPANY_PROPERTIES = [
   'website',
   'description',
   'createdate',
+  'hs_lastmodifieddate',
+  'lastmodifieddate',
 ];
 
-/** @type {{ associationCategory: string, associationTypeId: number }} */
-export const GRUPO_EMPRESA_ASSOCIATION = {
-  associationCategory: 'USER_DEFINED',
-  associationTypeId: 1,
-};
+export const MERGE_CONTACT_PROPERTIES = [
+  'firstname',
+  'lastname',
+  'email',
+  'phone',
+  'mobilephone',
+  'hs_calculated_phone_number',
+  'hs_searchable_calculated_international_phone_number',
+  'hs_whatsapp_phone_number',
+  'company',
+  'jobtitle',
+  'address',
+  'city',
+  'state',
+  'country',
+  'lifecyclestage',
+  'hs_lead_status',
+  'createdate',
+  'hs_lastmodifieddate',
+  'lastmodifieddate',
+  'num_associated_deals',
+];
 
 /** @typedef {ReturnType<typeof createHubSpotClient>} HubSpotClient */
 
@@ -59,8 +59,11 @@ export function createHubSpotClient(token) {
   /**
    * @param {string} path
    * @param {RequestInit} [init]
+   * @param {{ maxAttempts?: number, retryBaseMs?: number }} [retryOpts]
    */
-  async function request(path, init = {}) {
+  async function request(path, init = {}, retryOpts = {}) {
+    const maxAttempts = retryOpts.maxAttempts ?? 4;
+    const retryBaseMs = retryOpts.retryBaseMs ?? 2000;
     const url = `${BASE_URL}${path}`;
     let attempt = 0;
 
@@ -70,7 +73,7 @@ export function createHubSpotClient(token) {
         headers: { ...headers, ...init.headers },
       });
 
-      if (response.status === 429 && attempt < 6) {
+      if (response.status === 429 && attempt < maxAttempts) {
         const retryAfter = Number(response.headers.get('retry-after') || 2);
         const delayMs = (retryAfter + attempt) * 1000;
         await sleep(delayMs);
@@ -88,116 +91,144 @@ export function createHubSpotClient(token) {
         }
       }
 
+      const isRetryable =
+        response.status === 500 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504;
+
+      if (isRetryable && attempt < maxAttempts) {
+        const delayMs = (attempt + 1) * retryBaseMs;
+        await sleep(delayMs);
+        attempt += 1;
+        continue;
+      }
+
       if (!response.ok) {
-        const detail =
-          typeof body === 'object' && body?.message
-            ? body.message
-            : text || response.statusText;
-        throw new Error(`HubSpot ${response.status}: ${detail}`);
+        throw formatHubSpotError(response.status, body, text || response.statusText);
       }
 
       return body;
     }
   }
 
+  /**
+   * @param {'companies' | 'contacts'} objectType
+   * @param {string} id
+   */
+  async function getObject(objectType, id) {
+    try {
+      return await request(`/crm/v3/objects/${objectType}/${id}?properties=firstname,lastname,email,name`);
+    } catch (error) {
+      const status =
+        error instanceof Error && 'hubspotStatus' in error
+          ? Number(/** @type {{ hubspotStatus?: number }} */ (error).hubspotStatus)
+          : 0;
+      if (status === 404) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * @param {'companies' | 'contacts'} objectType
+   * @param {string[]} properties
+   * @param {(info: { fetched: number, page: number }) => void} [onPage]
+   */
+  async function fetchAllObjects(objectType, properties, onPage) {
+    const objects = [];
+    let after;
+    let page = 0;
+
+    do {
+      const params = new URLSearchParams({
+        limit: '100',
+        properties: properties.join(','),
+      });
+      if (after) params.set('after', after);
+
+      const data = await request(`/crm/v3/objects/${objectType}?${params}`);
+      if (data.results?.length) {
+        objects.push(...data.results);
+      }
+      page += 1;
+      after = data.paging?.next?.after;
+      onPage?.({ fetched: objects.length, page });
+    } while (after);
+
+    return objects;
+  }
+
   return {
-    /**
-     * @returns {Promise<Array<{ id: string, properties: Record<string, string> }>>}
-     */
-    async fetchAllCompanies(properties = COMPANY_PROPERTIES) {
-      const companies = [];
-      let after;
+    async testConnection() {
+      await request('/crm/v3/objects/companies?limit=1');
+      return { ok: true };
+    },
 
-      do {
-        const params = new URLSearchParams({
-          limit: '100',
-          properties: properties.join(','),
-        });
-        if (after) params.set('after', after);
+    async fetchAllCompanies(properties = MERGE_COMPANY_PROPERTIES, onPage) {
+      return fetchAllObjects('companies', properties, onPage);
+    },
 
-        const data = await request(`/crm/v3/objects/companies?${params}`);
-        if (data.results?.length) {
-          companies.push(...data.results);
-        }
-        after = data.paging?.next?.after;
-        if (companies.length % 500 === 0 && companies.length > 0) {
-          console.log(`  … ${companies.length} empresas leídas`);
-        }
-      } while (after);
-
-      return companies;
+    async fetchAllContacts(properties = MERGE_CONTACT_PROPERTIES, onPage) {
+      return fetchAllObjects('contacts', properties, onPage);
     },
 
     /**
+     * @param {'companies' | 'contacts'} objectType
      * @param {string} primaryId
      * @param {string} mergeId
      */
-    async mergeCompanies(primaryId, mergeId) {
-      return request('/crm/v3/objects/companies/merge', {
-        method: 'POST',
-        body: JSON.stringify({
-          primaryObjectId: String(primaryId),
-          objectIdToMerge: String(mergeId),
-        }),
-      });
-    },
-
-    /**
-     * @param {Array<{ id: string, properties: Record<string, string> }>} inputs
-     */
-    async batchUpdateCompanies(inputs) {
-      const chunkSize = 100;
-      for (let i = 0; i < inputs.length; i += chunkSize) {
-        const chunk = inputs.slice(i, i + chunkSize);
-        await request('/crm/v3/objects/companies/batch/update', {
+    async mergeObjects(objectType, primaryId, mergeId) {
+      return request(
+        `/crm/v3/objects/${objectType}/merge`,
+        {
           method: 'POST',
-          body: JSON.stringify({ inputs: chunk }),
-        });
-      }
+          body: JSON.stringify({
+            primaryObjectId: String(primaryId),
+            objectIdToMerge: String(mergeId),
+          }),
+        },
+        { maxAttempts: 2, retryBaseMs: 3000 },
+      );
     },
 
-    /**
-     * @param {Array<{ fromId: string, toId: string }>} pairs
-     */
-    async batchCreateGrupoEmpresaAssociations(pairs) {
-      await batchAssociationRequest(pairs, 'create');
+    async getContact(id) {
+      return getObject('contacts', id);
     },
 
-    /**
-     * @param {Array<{ fromId: string, toId: string }>} pairs
-     */
-    async batchArchiveGrupoEmpresaAssociations(pairs) {
-      await batchAssociationRequest(pairs, 'archive');
+    async getCompany(id) {
+      return getObject('companies', id);
+    },
+
+    async mergeCompanies(primaryId, mergeId) {
+      return this.mergeObjects('companies', primaryId, mergeId);
+    },
+
+    async mergeContacts(primaryId, mergeId) {
+      return this.mergeObjects('contacts', primaryId, mergeId);
     },
   };
-
-  /**
-   * @param {Array<{ fromId: string, toId: string }>} pairs
-   * @param {'create' | 'archive'} action
-   */
-  async function batchAssociationRequest(pairs, action) {
-    const chunkSize = 100;
-    const endpoint =
-      action === 'create'
-        ? '/crm/v4/associations/companies/companies/batch/create'
-        : '/crm/v4/associations/companies/companies/batch/labels/archive';
-
-    for (let i = 0; i < pairs.length; i += chunkSize) {
-      const chunk = pairs.slice(i, i + chunkSize);
-      const inputs = chunk.map(({ fromId, toId }) => ({
-        types: [GRUPO_EMPRESA_ASSOCIATION],
-        from: { id: String(fromId) },
-        to: { id: String(toId) },
-      }));
-
-      await request(endpoint, {
-        method: 'POST',
-        body: JSON.stringify({ inputs }),
-      });
-    }
-  }
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * @param {number} status
+ * @param {unknown} body
+ * @param {string} fallbackText
+ */
+function formatHubSpotError(status, body, fallbackText) {
+  if (body && typeof body === 'object') {
+    const b = /** @type {Record<string, unknown>} */ (body);
+    const parts = [String(b.message || 'Error desconocido')];
+    if (b.category) parts.push(`[${b.category}]`);
+    if (b.correlationId) parts.push(`correlationId: ${b.correlationId}`);
+    const err = new Error(`HubSpot ${status}: ${parts.join(' · ')}`);
+    if (b.correlationId) err.correlationId = String(b.correlationId);
+    err.hubspotStatus = status;
+    err.hubspotCategory = b.category ? String(b.category) : undefined;
+    return err;
+  }
+  return new Error(`HubSpot ${status}: ${fallbackText}`);
 }

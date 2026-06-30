@@ -1,0 +1,30 @@
+# Stack listo para Portainer: Stacks → Add stack → Web editor → pegar este archivo
+# Antes: crea un archivo .env en el mismo directorio del stack (ver .env.example)
+
+services:
+  fusionador:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hubspot-fusionador:latest
+    container_name: hubspot-fusionador
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SESSION_COOKIE_SECURE: "false"
+      TRUST_PROXY: "true"
+      MERGE_DELAY_MS: "1000"
+      MERGE_SETTLE_MS: "2000"
+      MERGE_MAX_ATTEMPTS: "5"
+    volumes:
+      - fusionador_data:/app/data
+      - fusionador_output:/app/output
+
+volumes:
+  fusionador_data:
+  fusionador_output:

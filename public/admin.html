@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administración - HubSpot Fusionador</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-top">
+      <h1>Administración de Usuarios</h1>
+      <div class="header-actions">
+        <button class="btn btn-primary" id="newUserBtn">+ Nuevo Usuario</button>
+        <a href="/logs.html" class="btn btn-primary">Ver Logs</a>
+        <a href="/dashboard.html" class="btn btn-outline">Volver al Dashboard</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div id="loading" class="loading">Cargando usuarios…</div>
+    <div id="usersGrid" class="cards-grid hidden"></div>
+  </main>
+
+  <div class="modal-overlay hidden" id="userModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="userModalTitle">Nuevo Usuario</h2>
+        <button class="modal-close" onclick="closeUserModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Usuario</label>
+          <input type="text" id="newUsername" required>
+        </div>
+        <div class="form-group">
+          <label>Contraseña</label>
+          <input type="password" id="newPassword" required>
+        </div>
+        <div class="form-group">
+          <label>Rol</label>
+          <select id="newRole">
+            <option value="user">Usuario</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeUserModal()">Cancelar</button>
+        <button class="btn btn-primary" id="saveUserBtn">Crear Usuario</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay hidden" id="passwordModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Cambiar Contraseña</h2>
+        <button class="modal-close" onclick="closePasswordModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="passwordUserLabel" style="margin-bottom:16px"></p>
+        <div class="form-group">
+          <label>Nueva Contraseña</label>
+          <input type="password" id="newPasswordValue" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closePasswordModal()">Cancelar</button>
+        <button class="btn btn-primary" id="savePasswordBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    let currentUser = null;
+    let passwordUserId = null;
+
+    async function init() {
+      currentUser = await requireAuth();
+      if (!currentUser || currentUser.role !== 'admin') {
+        window.location.href = '/dashboard.html';
+        return;
+      }
+
+      document.getElementById('newUserBtn').onclick = () => {
+        document.getElementById('userModal').classList.remove('hidden');
+      };
+      document.getElementById('saveUserBtn').onclick = createUser;
+      document.getElementById('savePasswordBtn').onclick = savePassword;
+
+      await loadUsers();
+    }
+
+    async function loadUsers() {
+      try {
+        const { users } = await API.getUsers();
+        document.getElementById('loading').classList.add('hidden');
+        const grid = document.getElementById('usersGrid');
+        grid.classList.remove('hidden');
+
+        grid.innerHTML = users.map((u) => `
+          <div class="project-card">
+            <h3>${escapeHtml(u.username)}</h3>
+            <p class="meta">Role: ${u.role}</p>
+            <p class="meta">Proyectos: ${u.project_count}</p>
+            <div class="card-footer" style="display:flex;gap:12px;justify-content:flex-end">
+              <a href="#" class="link-action" onclick="openPassword(${u.id}, '${escapeHtml(u.username)}');return false">Cambiar contraseña</a>
+              ${u.id !== currentUser.id ? `<a href="#" class="link-action" style="color:#ef4444" onclick="deleteUser(${u.id}, '${escapeHtml(u.username)}');return false">Eliminar</a>` : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        document.getElementById('loading').textContent = 'Error: ' + err.message;
+      }
+    }
+
+    async function createUser() {
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const role = document.getElementById('newRole').value;
+
+      if (!username || !password) return alert('Usuario y contraseña requeridos');
+
+      try {
+        await API.createUser({ username, password, role });
+        closeUserModal();
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        await loadUsers();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function openPassword(id, username) {
+      passwordUserId = id;
+      document.getElementById('passwordUserLabel').textContent = `Usuario: ${username}`;
+      document.getElementById('newPasswordValue').value = '';
+      document.getElementById('passwordModal').classList.remove('hidden');
+    }
+
+    async function savePassword() {
+      const password = document.getElementById('newPasswordValue').value;
+      if (!password) return alert('Contraseña requerida');
+
+      try {
+        await API.updateUserPassword(passwordUserId, password);
+        closePasswordModal();
+        alert('Contraseña actualizada');
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function deleteUser(id, username) {
+      if (!confirm(`¿Eliminar usuario "${username}"? Se eliminarán también sus proyectos.`)) return;
+      try {
+        await API.deleteUser(id);
+        await loadUsers();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function closeUserModal() {
+      document.getElementById('userModal').classList.add('hidden');
+    }
+
+    function closePasswordModal() {
+      document.getElementById('passwordModal').classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>

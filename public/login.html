@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HubSpot Fusionador - Acceso</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="login-logo">HS</div>
+    <h1>HubSpot Fusionador</h1>
+    <p class="subtitle">Accede a tu panel de control</p>
+
+    <div id="error" class="error-msg hidden"></div>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username">Usuario</label>
+        <input type="text" id="username" name="username" required autocomplete="username" value="admin">
+      </div>
+      <div class="form-group">
+        <label for="password">Contraseña</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="submitBtn">Iniciar Sesión</button>
+    </form>
+
+    <p class="login-footer">© 2026 Tool por Leadin</p>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script>
+    API.me().then(() => {
+      window.location.href = '/dashboard.html';
+    }).catch(() => {});
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('error');
+      const btn = document.getElementById('submitBtn');
+      errorEl.classList.add('hidden');
+      btn.disabled = true;
+
+      try {
+        await API.login(
+          document.getElementById('username').value,
+          document.getElementById('password').value,
+        );
+        window.location.href = '/dashboard.html';
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

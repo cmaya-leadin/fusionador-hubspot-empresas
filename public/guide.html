@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guía de Uso - HubSpot Fusionador</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-top">
+      <h1>Guía de Uso</h1>
+      <div class="header-actions">
+        <a href="/dashboard.html" class="btn btn-outline">Volver al Dashboard</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="main">
+    <div class="panel">
+      <div class="panel-body guide-content">
+        <h2>1. Introducción</h2>
+        <p>
+          El <strong>HubSpot Fusionador</strong> detecta registros duplicados en tu portal de HubSpot
+          (empresas o contactos) y permite fusionarlos de forma controlada. Antes de aplicar cambios
+          reales, puedes ejecutar una <strong>simulación</strong> que muestra cómo quedaría el objeto
+          resultante sin modificar HubSpot.
+        </p>
+
+        <h2>2. Primeros pasos</h2>
+        <ol>
+          <li>Inicia sesión con tu usuario y contraseña.</li>
+          <li>Crea un <strong>nuevo proyecto</strong> desde el dashboard.</li>
+          <li>Configura el <strong>Access Token (PAT)</strong> de HubSpot con permisos de lectura y escritura sobre CRM.</li>
+          <li>Selecciona el tipo de entidad: <strong>Empresas</strong> o <strong>Contactos</strong>.</li>
+          <li>Pulsa <strong>Probar Conexión</strong> para verificar que el token funciona.</li>
+        </ol>
+
+        <h2>3. Criterios de fusión</h2>
+        <p>En <strong>Criterios de Fusión</strong> (botón en la barra superior o panel del proyecto) puedes configurar:</p>
+
+        <h3>Reglas de coincidencia</h3>
+        <p>Cada regla indica qué propiedades deben coincidir <em>todas a la vez</em>. Por ejemplo:</p>
+        <ul>
+          <li><code>name, email</code> — fusiona solo si nombre y email son iguales (ideal para contactos "David" con emails distintos).</li>
+          <li><code>name, phone</code> — fusiona si nombre y teléfono coinciden.</li>
+          <li><code>domain</code> — fusiona empresas con el mismo dominio.</li>
+        </ul>
+        <p>Puedes añadir varias reglas; cada una detecta duplicados de forma independiente.</p>
+
+        <h3>Reglas de predominancia</h3>
+        <p>Orden de prioridad para elegir el registro que sobrevive:</p>
+        <ul>
+          <li><strong>Propiedad informada</strong> — prioriza quien tenga rellena una propiedad (ej. código NAV).</li>
+          <li><strong>Mayor nº de asociaciones</strong> — ej. <code>num_associated_contacts</code> o <code>num_associated_deals</code>.</li>
+          <li><strong>Datos más recientes</strong> — ej. <code>hs_lastmodifieddate</code>.</li>
+          <li><strong>Más propiedades rellenas</strong> — el registro con más información.</li>
+        </ul>
+
+        <h2>4. Simulación vs. Aplicación</h2>
+        <h3>Simular Fusión (recomendado)</h3>
+        <p>
+          Lee todos los registros de HubSpot, detecta grupos de duplicados y calcula el objeto fusionado
+          resultante <strong>sin modificar nada</strong>. Puedes ver la vista previa de cada grupo con el
+          botón <strong>Ver Simulación</strong>.
+        </p>
+        <h3>Aplicar Fusión (irreversible)</h3>
+        <p>
+          Ejecuta la fusión real en HubSpot mediante la API <code>POST /crm/v3/objects/{type}/merge</code>.
+          Por seguridad, la fusión masiva sin filtros está bloqueada. Usa filtros (dominio, nombre, máximo
+          de grupos) o confirma explícitamente una ejecución completa.
+        </p>
+
+        <h2>5. Filtros de ejecución</h2>
+        <ul>
+          <li><strong>Dominio/email:</strong> limita la búsqueda a registros que contengan ese valor.</li>
+          <li><strong>Nombre:</strong> filtra por coincidencia parcial en nombre o dominio (no distingue mayúsculas/minúsculas ni acentos).</li>
+          <li><strong>Máx. grupos:</strong> limita el número de grupos procesados (útil para pruebas).</li>
+        </ul>
+
+        <h2>6. Roles de usuario</h2>
+        <ul>
+          <li><strong>Usuario:</strong> ve y gestiona solo sus propios proyectos.</li>
+          <li><strong>Administrador:</strong> ve todos los proyectos (con nombre del creador), gestiona usuarios y accede a logs globales.</li>
+        </ul>
+
+        <h2>7. Logs</h2>
+        <p>
+          Todas las acciones (login, creación de proyectos, simulaciones, fusiones, errores) quedan
+          registradas en el panel de logs. Se actualizan automáticamente cada 10 segundos.
+        </p>
+
+        <h2>8. Token de HubSpot</h2>
+        <p>
+          Crea una <strong>Private App</strong> en HubSpot con los scopes:
+          <code>crm.objects.companies.read</code>,
+          <code>crm.objects.companies.write</code>,
+          <code>crm.objects.contacts.read</code>,
+          <code>crm.objects.contacts.write</code>.
+          El token se almacena cifrado en la base de datos local.
+        </p>
+
+        <h2>9. Buenas prácticas</h2>
+        <ol>
+          <li>Siempre ejecuta una simulación antes de aplicar fusiones.</li>
+          <li>Empieza con filtros restrictivos y pocos grupos (<code>maxGroups: 5</code>).</li>
+          <li>Revisa la vista previa del objeto fusionado en cada grupo.</li>
+          <li>Consulta los logs si algo falla.</li>
+          <li>Cambia la contraseña del admin por defecto en producción.</li>
+        </ol>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script>requireAuth();</script>
+</body>
+</html>

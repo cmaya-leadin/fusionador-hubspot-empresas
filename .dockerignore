@@ -1,0 +1,15 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+data
+output
+.git
+.gitignore
+*.md
+!README.md
+.cursor
+terminals
+*.log
+.DS_Store
