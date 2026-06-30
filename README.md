@@ -73,11 +73,11 @@ Si no añades ninguna, el stack **igualmente despliega** con `admin` / `admin` y
 | `ADMIN_PASSWORD` | Contraseña del usuario `admin` (solo al crear la BD) |
 | `SESSION_COOKIE_SECURE` | `true` solo con HTTPS delante del contenedor |
 | `TRUST_PROXY` | `true` detrás de Nginx/Traefik (por defecto) |
-| `PORT` | Puerto en el host (por defecto `3000`) |
+| `PORT` | Puerto publicado en el **host** (por defecto `3080`; el contenedor sigue en 3000) |
 
 Plantilla: `portainer.env.example`
 
-7. **Deploy the stack**
+> **Puerto en uso:** si ves `Bind for 0.0.0.0:3000 failed: port is already allocated`, define `PORT=3080` (u otro libre) en Environment variables y redeploy. La app quedará en `http://tu-vps:3080`.
 
 ### Opción B — Clonar en el VPS
 
