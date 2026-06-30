@@ -1,17 +1,13 @@
-# Stack para Portainer — NO requiere archivo .env en el servidor.
-# Define estas variables en Portainer: Stacks → tu stack → Editor → "Environment variables"
+# Stack para Portainer (sin archivo .env en el servidor)
 #
-# Obligatorias:
-#   SESSION_SECRET=genera-un-secreto-largo-aleatorio
-#   ADMIN_PASSWORD=tu-password-admin
+# OPCIÓN 1 — Variables en Portainer (recomendado):
+#   Al crear/editar el stack, despliega "Environment variables" y añade:
+#     SESSION_SECRET=tu-secreto-largo
+#     ADMIN_PASSWORD=tu-password
 #
-# Opcionales (ya tienen valor por defecto en el compose):
-#   PORT=3000
-#   SESSION_COOKIE_SECURE=false
-#   TRUST_PROXY=true
-#   MERGE_DELAY_MS=1000
-#   MERGE_SETTLE_MS=2000
-#   MERGE_MAX_ATTEMPTS=5
+# OPCIÓN 2 — Sin variables extra:
+#   El stack arranca con valores por defecto (admin/admin y secreto genérico).
+#   Cámbialos en Environment variables y redeploy cuanto antes.
 
 services:
   fusionador:
@@ -26,8 +22,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      SESSION_SECRET: ${SESSION_SECRET:?Define SESSION_SECRET en las variables del stack}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Define ADMIN_PASSWORD en las variables del stack}
+      SESSION_SECRET: ${SESSION_SECRET:-fusionador-cambiar-secreto-en-portainer}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       TRUST_PROXY: ${TRUST_PROXY:-true}
       MERGE_DELAY_MS: ${MERGE_DELAY_MS:-1000}
