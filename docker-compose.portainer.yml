@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: hubspot-fusionador:latest
+    # Sin etiqueta `image:`: Portainer construye en el servidor y no intenta pull en Docker Hub.
     container_name: hubspot-fusionador
     restart: unless-stopped
     ports:

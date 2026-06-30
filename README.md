@@ -51,7 +51,7 @@ Datos persistentes en volúmenes Docker:
 
 ### Opción A — Stack desde repositorio Git (Portainer)
 
-1. En Portainer: **Stacks** → **Add stack** (o edita el stack fallido y **Pull and redeploy**)
+1. En Portainer: **Stacks** → **Add stack** (o edita el stack y **Pull and redeploy**)
 2. Nombre: `hubspot-fusionador`
 3. **Build method**: Repository
 4. Repository URL: `https://github.com/cmaya-leadin/fusionador-hubspot-empresas`
@@ -78,6 +78,8 @@ Si no añades ninguna, el stack **igualmente despliega** con `admin` / `admin` y
 Plantilla: `portainer.env.example`
 
 7. **Deploy the stack**
+
+> **Pull and redeploy:** actualiza el repo Git y reconstruye la imagen en el servidor. No hace falta `docker login`. El `docker-compose.portainer.yml` no declara `image:` (solo `build`) para que Portainer no intente descargar de Docker Hub.
 
 > **Puerto en uso:** define `PORT=3080` (u otro libre) si el 3000 está ocupado.
 

@@ -92,6 +92,10 @@
           <input type="checkbox" id="critExcludeGeneric">
           <label for="critExcludeGeneric">Excluir dominios genéricos (gmail, etc.)</label>
         </div>
+        <div class="form-check" id="critMinNameWordsRow" hidden>
+          <input type="checkbox" id="critMinNameWords">
+          <label for="critMinNameWords">Solo nombres compuestos (mín. 2 palabras)</label>
+        </div>
 
         <div id="criteriaSaveStatus"></div>
         <div id="criteriaSummary" style="margin-top:20px"></div>
@@ -344,6 +348,14 @@
       if (isApply && !confirm('¿Aplicar fusiones REALES en HubSpot? Esta acción no se puede deshacer.')) return;
 
       const filters = getFilters();
+      if (!isRetry) {
+        try {
+          filters.mergeCriteria = readCriteriaForm(project.entityType);
+        } catch (err) {
+          alert(err.message || 'Revisa los criterios de fusión');
+          return;
+        }
+      }
       if (isApply && !filters.dominio && !filters.nombre && !filters.maxGroups) {
         if (!confirm('No hay filtros activos. La fusión masiva está bloqueada por seguridad. ¿Deseas continuar con confirmFullRun?')) return;
         filters.confirmFullRun = true;
@@ -425,8 +437,16 @@
       const stats = result.stats;
       document.getElementById('statGroups').textContent = stats.mergeGroups;
       let sub = `${stats.eligibleRecords} elegibles de ${stats.totalRecords}`;
+      if (result.criteria?.minNameWords >= 2) {
+        sub += ' · filtro nombre ≥2 palabras';
+      }
       if (stats.recordsWithNameAndPhone != null && stats.recordsWithNameAndPhone > 0) {
         sub += ` · ${stats.recordsWithNameAndPhone} con nombre+telf.`;
+      } else if (stats.recordsWithCompoundName != null && stats.recordsWithCompoundName > 0) {
+        sub += ` · ${stats.recordsWithCompoundName} con nombre compuesto`;
+        if (stats.recordsWithSingleName > 0) {
+          sub += ` (${stats.recordsWithSingleName} de 1 palabra excluidos)`;
+        }
       } else if (stats.recordsWithPhone != null) {
         sub += ` · ${stats.recordsWithPhone || 0} con teléfono`;
       }

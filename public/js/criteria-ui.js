@@ -16,6 +16,7 @@ const MATCH_PRESETS = {
     { label: 'CIF/VAT', properties: ['vat_number___cif'] },
   ],
   contacts: [
+    { label: 'Nombre (solo compuesto)', properties: ['name'] },
     { label: 'Nombre + Teléfono (HubSpot)', properties: ['name', 'phone'] },
     { label: 'Nombre + Email', properties: ['name', 'email'] },
     { label: 'Email', properties: ['email'] },
@@ -39,6 +40,18 @@ function renderCriteriaSummary(criteria, entityType) {
     .map((r, i) => `<span class="criteria-order">${i + 1}.</span> ${escapeHtml(describePrimaryRule(r))}`)
     .join('<br>');
 
+  const exclusions = [];
+  if (criteria.skipInactive) exclusions.push('omitir inactivos');
+  if (criteria.skipOnlyProveedor) exclusions.push('omitir solo proveedor');
+  if (criteria.excludeGenericDomains !== false) exclusions.push('sin dominios genéricos');
+  if ((criteria.minNameWords || 0) >= 2) {
+    exclusions.push(`nombre ≥ ${criteria.minNameWords} palabras`);
+  }
+
+  const exclusionsHtml = exclusions.length
+    ? `<p class="criteria-hint" style="margin-top:12px"><strong>Filtros:</strong> ${exclusions.map(escapeHtml).join(' · ')}</p>`
+    : '';
+
   return `
     <div class="criteria-summary-grid">
       <div>
@@ -50,6 +63,7 @@ function renderCriteriaSummary(criteria, entityType) {
         <div class="criteria-primary-list">${primaryHtml || '<em>Sin reglas</em>'}</div>
       </div>
     </div>
+    ${exclusionsHtml}
   `;
 }
 
@@ -175,6 +189,14 @@ function loadCriteriaForm(criteria, entityType) {
   editor.querySelector('#critSkipProveedor').checked = !!criteria.skipOnlyProveedor;
   editor.querySelector('#critExcludeGeneric').checked = criteria.excludeGenericDomains !== false;
 
+  const minNameRow = editor.querySelector('#critMinNameWordsRow');
+  const minNameCheck = editor.querySelector('#critMinNameWords');
+  if (minNameRow && minNameCheck) {
+    const isContacts = entityType === 'contacts';
+    minNameRow.hidden = !isContacts;
+    minNameCheck.checked = isContacts && (criteria.minNameWords || 0) >= 2;
+  }
+
   updateCriteriaSummary(criteria, entityType);
   updateMatchPresets(entityType);
   setCriteriaStatus('');
@@ -189,7 +211,7 @@ function updateMatchPresets(entityType) {
     presets.map((p, i) => `<option value="${i}">${p.label}</option>`).join('');
 }
 
-function readCriteriaForm() {
+function readCriteriaForm(entityType) {
   const editor = getCriteriaContainer();
   if (!editor) {
     throw new Error('Editor de criterios no encontrado');
@@ -215,12 +237,17 @@ function readCriteriaForm() {
     return rule;
   });
 
+  const minNameCheck = editor.querySelector('#critMinNameWords');
+  const minNameWords =
+    entityType === 'contacts' && minNameCheck?.checked ? 2 : 0;
+
   return {
     matchRules,
     primaryRules,
     skipInactive: editor.querySelector('#critSkipInactive').checked,
     skipOnlyProveedor: editor.querySelector('#critSkipProveedor').checked,
     excludeGenericDomains: editor.querySelector('#critExcludeGeneric').checked,
+    minNameWords,
   };
 }
 
@@ -244,7 +271,7 @@ function setCriteriaStatus(message, isError = false) {
 }
 
 async function persistCriteria(projectId, entityType, extraData = {}) {
-  const mergeCriteria = readCriteriaForm();
+  const mergeCriteria = readCriteriaForm(entityType);
 
   if (!mergeCriteria.matchRules.length) {
     throw new Error('Añade al menos una regla de coincidencia');
@@ -295,6 +322,14 @@ function setupCriteriaEditor(project, projectId, onSaved) {
       editor.querySelector('#matchRulesList').appendChild(
         createMatchRuleRow(preset, project.entityType),
       );
+      if (
+        project.entityType === 'contacts' &&
+        preset.properties?.length === 1 &&
+        preset.properties[0] === 'name'
+      ) {
+        const minNameCheck = editor.querySelector('#critMinNameWords');
+        if (minNameCheck) minNameCheck.checked = true;
+      }
     }
     e.target.value = '';
   };

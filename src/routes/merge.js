@@ -129,7 +129,10 @@ async function handleMerge(req, res, dryRun) {
     ...parsed,
     dryRun,
     entityType: project.entity_type,
-    criteria: parseMergeCriteria(project.merge_criteria, project.entity_type),
+    criteria: parseMergeCriteria(
+      req.body?.mergeCriteria != null ? req.body.mergeCriteria : project.merge_criteria,
+      project.entity_type,
+    ),
   };
 
   const stream = wantsStream(req);

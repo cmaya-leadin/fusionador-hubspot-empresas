@@ -73,6 +73,18 @@ export function normalizeContactName(name) {
 }
 
 /**
+ * Cuenta palabras del nombre visible (sin ordenar tokens).
+ * @param {MergeRecord} record
+ * @param {'companies' | 'contacts'} [entityType]
+ */
+export function countDisplayNameWords(record, entityType = 'contacts') {
+  const display = getRecordDisplayName(record);
+  const base = normalizeForMatch(display);
+  if (!base) return 0;
+  return base.split(' ').filter(Boolean).length;
+}
+
+/**
  * Extrae el mejor valor de teléfono disponible en un contacto HubSpot.
  * @param {Record<string, string>} properties
  */
@@ -255,6 +267,11 @@ export function getMatchPropertyValue(record, prop, entityType = 'companies') {
  * @param {'companies' | 'contacts'} entityType
  */
 export function buildCompositeMatchKey(record, properties, criteria, entityType) {
+  const minNameWords = Number(criteria.minNameWords) || 0;
+  if (minNameWords >= 2 && properties.includes('name')) {
+    if (countDisplayNameWords(record, entityType) < minNameWords) return null;
+  }
+
   const parts = [];
 
   for (const prop of properties) {
@@ -599,13 +616,32 @@ export function buildMergeGroups(records, criteria, entityType = 'companies') {
   let recordsWithNameAndPhone = 0;
 
   if (entityType === 'contacts') {
+    let recordsWithCompoundName = 0;
+    let recordsWithSingleName = 0;
     for (const record of eligible) {
       const hasName = Boolean(normalizeContactName(record.name));
       const hasPhone = Boolean(normalizePhone(getContactPhoneRaw(record.properties)));
       if (hasName) recordsWithName += 1;
       if (hasPhone) recordsWithPhone += 1;
       if (hasName && hasPhone) recordsWithNameAndPhone += 1;
+      const wordCount = countDisplayNameWords(record, entityType);
+      if (wordCount >= 2) recordsWithCompoundName += 1;
+      else if (wordCount === 1) recordsWithSingleName += 1;
     }
+    return {
+      groups,
+      stats: {
+        eligibleRecords: eligible.length,
+        skippedInactive,
+        skippedOnlyProveedor,
+        skippedNoName: 0,
+        recordsWithName,
+        recordsWithPhone,
+        recordsWithNameAndPhone,
+        recordsWithCompoundName,
+        recordsWithSingleName,
+      },
+    };
   }
 
   return {
@@ -1072,6 +1108,8 @@ export async function runEntityMerge(client, records, options = {}) {
     recordsWithName: buildStats.recordsWithName ?? 0,
     recordsWithPhone: buildStats.recordsWithPhone ?? 0,
     recordsWithNameAndPhone: buildStats.recordsWithNameAndPhone ?? 0,
+    recordsWithCompoundName: buildStats.recordsWithCompoundName ?? 0,
+    recordsWithSingleName: buildStats.recordsWithSingleName ?? 0,
     mergeGroups: filteredGroups.length,
     mergesPlanned: operations.length,
     mergesConsolidated: consolidatedSaved,

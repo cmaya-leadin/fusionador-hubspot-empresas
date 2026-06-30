@@ -8,6 +8,7 @@
  * @property {boolean} skipInactive
  * @property {boolean} skipOnlyProveedor
  * @property {boolean} excludeGenericDomains
+ * @property {number} [minNameWords] Mín. palabras en el nombre (contactos); 0 = sin filtro
  * @property {string | null} [navProperty]
  * @property {string | null} [inactiveProperty]
  * @property {string | null} [inactiveValue]
@@ -59,6 +60,7 @@ export const DEFAULT_MERGE_CRITERIA = {
   skipInactive: true,
   skipOnlyProveedor: true,
   excludeGenericDomains: true,
+  minNameWords: 0,
   navProperty: 'codigo_cuenta_nav',
   inactiveProperty: 'estado',
   inactiveValue: 'inactive',
@@ -81,6 +83,7 @@ export const DEFAULT_CONTACT_CRITERIA = {
   skipInactive: false,
   skipOnlyProveedor: false,
   excludeGenericDomains: true,
+  minNameWords: 0,
   navProperty: null,
   inactiveProperty: null,
   inactiveValue: null,
@@ -186,10 +189,21 @@ export function parseMergeCriteria(raw, entityType = 'companies') {
     skipOnlyProveedor: parsed.skipOnlyProveedor ?? defaults.skipOnlyProveedor,
     excludeGenericDomains:
       parsed.excludeGenericDomains ?? defaults.excludeGenericDomains,
+    minNameWords: parseMinNameWords(parsed.minNameWords, defaults.minNameWords),
     navProperty: parsed.navProperty ?? defaults.navProperty,
     inactiveProperty: parsed.inactiveProperty ?? defaults.inactiveProperty,
     inactiveValue: parsed.inactiveValue ?? defaults.inactiveValue,
   };
+}
+
+/**
+ * @param {unknown} raw
+ * @param {number | undefined} fallback
+ */
+function parseMinNameWords(raw, fallback = 0) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return fallback ?? 0;
+  return Math.floor(n);
 }
 
 /**
