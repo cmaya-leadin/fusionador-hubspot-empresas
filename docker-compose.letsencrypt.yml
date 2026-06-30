@@ -1,0 +1,88 @@
+# Stack Portainer: Fusionador + Traefik + Let's Encrypt (renovación automática)
+#
+# Requisitos:
+#   - DNS del dominio apuntando a la IP del VPS (registro A)
+#   - Puertos 80 y 443 abiertos en el firewall
+#   - Portainer con acceso al socket Docker
+#
+# Variables en Portainer → Environment variables:
+#   FUSIONADOR_DOMAIN=fusionador.tudominio.com
+#   LETSENCRYPT_EMAIL=tu@email.com
+#   SESSION_SECRET=secreto-largo
+#   ADMIN_PASSWORD=password-seguro
+#
+# Compose path en Portainer: docker-compose.letsencrypt.yml
+
+services:
+  traefik:
+    image: traefik:v3.3
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --log.level=INFO
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.transport.respondingtimeouts.readtimeout=3600s
+      - --entrypoints.websecure.transport.respondingtimeouts.writetimeout=3600s
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@example.com}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - fusionador_net
+
+  fusionador:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hubspot-fusionador:latest
+    container_name: hubspot-fusionador
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SESSION_SECRET: ${SESSION_SECRET:-fusionador-cambiar-secreto-en-portainer}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-auto}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      MERGE_DELAY_MS: ${MERGE_DELAY_MS:-1000}
+      MERGE_SETTLE_MS: ${MERGE_SETTLE_MS:-2000}
+      MERGE_MAX_ATTEMPTS: ${MERGE_MAX_ATTEMPTS:-5}
+    volumes:
+      - fusionador_data:/app/data
+      - fusionador_output:/app/output
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - fusionador_net
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.fusionador.rule=Host(`${FUSIONADOR_DOMAIN:-fusionador.localhost}`)
+      - traefik.http.routers.fusionador.entrypoints=websecure
+      - traefik.http.routers.fusionador.tls=true
+      - traefik.http.routers.fusionador.tls.certresolver=letsencrypt
+      - traefik.http.services.fusionador.loadbalancer.server.port=3000
+      - traefik.http.services.fusionador.loadbalancer.passhostheader=true
+      - traefik.http.services.fusionador.loadbalancer.responseforwarding.flushinterval=1s
+
+networks:
+  fusionador_net:
+
+volumes:
+  fusionador_data:
+  fusionador_output:
+  traefik_letsencrypt:

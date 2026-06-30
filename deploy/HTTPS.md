@@ -39,7 +39,11 @@ Respuesta esperada con HTTPS correcto:
 
 Si `forwardedProto` es `null` o `secure` es `false`, el proxy **no** está pasando `X-Forwarded-Proto`. Revisa la config de Nginx/Traefik.
 
-## Nginx
+## Let's Encrypt (renovación automática)
+
+Guía completa: [`deploy/LETSENCRYPT.md`](deploy/LETSENCRYPT.md) — stack `docker-compose.letsencrypt.yml` con Traefik.
+
+## Nginx manual
 
 Ver `deploy/nginx-fusionador.conf.example`. Puntos críticos:
 

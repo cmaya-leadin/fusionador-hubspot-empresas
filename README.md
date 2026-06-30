@@ -77,6 +77,18 @@ Si no añades ninguna, el stack **igualmente despliega** con `admin` / `admin` y
 
 Plantilla: `portainer.env.example`
 
+### Opción A2 — HTTPS con Let's Encrypt automático (Traefik)
+
+Si quieres **certificado Let's Encrypt con renovación automática** sin configurar Nginx a mano:
+
+1. DNS: `fusionador.tudominio.com` → IP del VPS  
+2. Puertos **80** y **443** libres  
+3. En Portainer, compose path: **`docker-compose.letsencrypt.yml`**  
+4. Variables: `FUSIONADOR_DOMAIN`, `LETSENCRYPT_EMAIL`, `SESSION_SECRET`, `ADMIN_PASSWORD`  
+   (plantilla: `portainer.letsencrypt.env.example`)
+
+Guía detallada: [`deploy/LETSENCRYPT.md`](deploy/LETSENCRYPT.md)
+
 > **Puerto en uso:** si ves `Bind for 0.0.0.0:3000 failed: port is already allocated`, define `PORT=3080` (u otro libre) en Environment variables y redeploy. La app quedará en `http://tu-vps:3080`.
 
 ### Opción B — Clonar en el VPS
