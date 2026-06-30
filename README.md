@@ -89,16 +89,22 @@ nano .env
 docker compose up -d --build
 ```
 
-### Reverse proxy (recomendado)
+### Reverse proxy y HTTPS
 
-Expón el puerto 3000 solo internamente y pon Nginx/Traefik con HTTPS delante. Con TLS activo:
+La app va **detrás de Nginx/Traefik/Caddy** con TLS. Guía completa: [`deploy/HTTPS.md`](deploy/HTTPS.md)
+
+En Portainer:
 
 ```env
-SESSION_COOKIE_SECURE=true
 TRUST_PROXY=true
+SESSION_COOKIE_SECURE=auto
 ```
 
-## Uso
+Comprueba tras desplegar: `https://tu-dominio/api/health` → debe mostrar `"secure": true` y `"forwardedProto": "https"`.
+
+Ejemplo Nginx: [`deploy/nginx-fusionador.conf.example`](deploy/nginx-fusionador.conf.example)
+
+### Opción B — Clonar en el VPS
 
 1. Inicia sesión y crea un proyecto.
 2. Configura el token PAT de HubSpot y el tipo de entidad.

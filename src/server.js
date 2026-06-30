@@ -22,9 +22,23 @@ const INSECURE_SECRETS = new Set([
 
 const sessionSecret = process.env.SESSION_SECRET || 'fusionador-dev-secret-change-me';
 
-const app = express();
+/**
+ * @returns {boolean | 'auto'}
+ */
+function resolveSessionCookieSecure() {
+  const raw = (process.env.SESSION_COOKIE_SECURE || '').trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (raw === 'auto') return 'auto';
+  // Detrás de reverse proxy HTTPS: detectar vía X-Forwarded-Proto
+  if (process.env.TRUST_PROXY === 'true') return 'auto';
+  return false;
+}
 
-if (process.env.TRUST_PROXY === 'true') {
+const app = express();
+const trustProxy = process.env.TRUST_PROXY === 'true';
+
+if (trustProxy) {
   app.set('trust proxy', 1);
 }
 
@@ -36,7 +50,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.SESSION_COOKIE_SECURE === 'true',
+      secure: resolveSessionCookieSecure(),
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000,
     },
   }),
@@ -48,8 +63,14 @@ app.use('/api/merge', mergeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/logs', logRoutes);
 
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' });
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    secure: req.secure,
+    forwardedProto: req.headers['x-forwarded-proto'] || null,
+    trustProxy,
+    cookieSecure: resolveSessionCookieSecure(),
+  });
 });
 
 app.use(express.static(PUBLIC_DIR));

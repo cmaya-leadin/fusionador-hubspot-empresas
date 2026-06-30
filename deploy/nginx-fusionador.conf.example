@@ -1,0 +1,39 @@
+# Ejemplo Nginx — HTTPS delante del contenedor Fusionador
+# Sustituye fusionador.tudominio.com y el puerto/host del backend (3080 o nombre del contenedor).
+
+server {
+    listen 80;
+    server_name fusionador.tudominio.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name fusionador.tudominio.com;
+
+    # Certificados (Certbot / Let's Encrypt)
+    ssl_certificate     /etc/letsencrypt/live/fusionador.tudominio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fusionador.tudominio.com/privkey.pem;
+
+    # Si el contenedor está en el mismo host:
+    set $fusionador_upstream http://127.0.0.1:3080;
+    # Si Nginx está en Docker en la misma red que el stack:
+    # set $fusionador_upstream http://hubspot-fusionador:3000;
+
+    location / {
+        proxy_pass $fusionador_upstream;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+
+        # Imprescindible para simulación/fusión (SSE, operaciones largas)
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
