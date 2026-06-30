@@ -49,23 +49,28 @@ Datos persistentes en volúmenes Docker:
 
 ## Despliegue en VPS con Portainer
 
-### Opción A — Stack desde repositorio Git
+### Opción A — Stack desde repositorio Git (Portainer)
 
-1. En Portainer: **Stacks** → **Add stack**
+1. En Portainer: **Stacks** → **Add stack** (o edita el stack fallido y **Pull and redeploy**)
 2. Nombre: `hubspot-fusionador`
 3. **Build method**: Repository
 4. Repository URL: `https://github.com/cmaya-leadin/fusionador-hubspot-empresas`
 5. Compose path: `docker-compose.portainer.yml`
-6. Añade variables de entorno (o monta un `.env`):
+6. **Environment variables** — añade al menos estas dos (no necesitas archivo `.env` en el VPS):
 
 | Variable | Descripción |
 |----------|-------------|
-| `SESSION_SECRET` | Secreto largo y aleatorio (obligatorio) |
-| `ADMIN_PASSWORD` | Contraseña inicial del admin |
-| `SESSION_COOKIE_SECURE` | `true` si usas HTTPS delante del contenedor |
+| `SESSION_SECRET` | Secreto largo y aleatorio (**obligatorio**) |
+| `ADMIN_PASSWORD` | Contraseña inicial del admin (**obligatorio**) |
+| `SESSION_COOKIE_SECURE` | `true` solo con HTTPS delante del contenedor |
 | `TRUST_PROXY` | `true` detrás de Nginx/Traefik (por defecto) |
+| `PORT` | Puerto publicado en el host (por defecto `3000`) |
+
+Puedes copiar la plantilla desde `portainer.env.example`.
 
 7. **Deploy the stack**
+
+> Si ves `env file .env not found`, actualiza el stack desde el repo (se eliminó la dependencia de `.env` en `docker-compose.portainer.yml`).
 
 ### Opción B — Clonar en el VPS
 
