@@ -14,7 +14,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: hubspot-fusionador:latest
+      pull_policy: build
     container_name: hubspot-fusionador
     restart: unless-stopped
     ports:
