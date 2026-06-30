@@ -691,8 +691,43 @@ tbody tr:hover {
 }
 
 .criteria-rule-card.exclusion-rule-row {
-  grid-template-columns: 1.4fr 1fr 1fr auto;
+  grid-template-columns: minmax(200px, 1.4fr) minmax(0, 1fr) auto;
   align-items: end;
+}
+
+.exclusion-extra-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+  min-width: 0;
+}
+
+.exclusion-extra-fields:empty {
+  display: none;
+}
+
+.exclusion-extra-fields .criteria-field {
+  flex: 1 1 140px;
+  min-width: 120px;
+  max-width: 220px;
+}
+
+.exclusion-actions {
+  display: flex;
+  align-self: end;
+  margin-bottom: 2px;
+}
+
+.exclusion-actions .criteria-remove-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0;
 }
 
 .criteria-summary-grid h4 {
@@ -824,6 +859,13 @@ tbody tr:hover {
 .criteria-remove-btn {
   align-self: end;
   margin-bottom: 2px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .primary-actions {
@@ -831,6 +873,17 @@ tbody tr:hover {
   gap: 4px;
   align-self: end;
   margin-bottom: 2px;
+}
+
+.primary-actions .btn,
+.exclusion-actions .btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .criteria-rule-row.primary-rule-row {

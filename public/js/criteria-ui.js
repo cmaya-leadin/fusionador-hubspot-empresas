@@ -162,7 +162,7 @@ function createPrimaryRuleRow(rule = { type: 'max_filled_props', property: '' },
       <label class="criteria-field-label">Criterio</label>
       <select class="criteria-input criteria-select primary-type">${options}</select>
     </div>
-    <div class="criteria-field criteria-field-grow">
+    <div class="criteria-field criteria-field-grow primary-prop-field">
       <label class="criteria-field-label">Propiedad</label>
       <input type="text" class="criteria-input primary-prop" placeholder="Propiedad HubSpot" value="${escapeAttr(rule.property || '')}">
     </div>
@@ -174,11 +174,12 @@ function createPrimaryRuleRow(rule = { type: 'max_filled_props', property: '' },
   `;
 
   const typeSelect = row.querySelector('.primary-type');
+  const propField = row.querySelector('.primary-prop-field');
   const propInput = row.querySelector('.primary-prop');
 
   function syncPropertyField() {
     const opt = PRIMARY_RULE_OPTIONS.find((o) => o.type === typeSelect.value);
-    propInput.style.display = opt?.needsProperty ? '' : 'none';
+    propField.style.display = opt?.needsProperty ? '' : 'none';
     if (opt?.needsProperty && !propInput.value && opt.defaultProperty) {
       propInput.placeholder = opt.defaultProperty;
     }
@@ -223,19 +224,23 @@ function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) 
       <label class="criteria-field-label">Tipo de exclusión</label>
       <select class="criteria-input criteria-select exclusion-type">${optionsHtml}</select>
     </div>
-    <div class="criteria-field exclusion-prop-field" style="display:none">
-      <label class="criteria-field-label">Propiedad</label>
-      <input type="text" class="criteria-input exclusion-prop" placeholder="email, phone, estado…" value="${escapeAttr(rule.property || '')}">
+    <div class="exclusion-extra-fields">
+      <div class="criteria-field exclusion-prop-field" hidden>
+        <label class="criteria-field-label">Propiedad</label>
+        <input type="text" class="criteria-input exclusion-prop" placeholder="email, phone, estado…" value="${escapeAttr(rule.property || '')}">
+      </div>
+      <div class="criteria-field exclusion-value-field" hidden>
+        <label class="criteria-field-label">Valor</label>
+        <input type="text" class="criteria-input exclusion-value" placeholder="Valor a excluir" value="${escapeAttr(rule.value || '')}">
+      </div>
+      <div class="criteria-field exclusion-minwords-field" hidden>
+        <label class="criteria-field-label">Mín. palabras</label>
+        <input type="number" class="criteria-input exclusion-minwords" min="2" max="10" value="${escapeAttr(String(rule.minWords ?? 2))}">
+      </div>
     </div>
-    <div class="criteria-field exclusion-value-field" style="display:none">
-      <label class="criteria-field-label">Valor</label>
-      <input type="text" class="criteria-input exclusion-value" placeholder="Valor a excluir" value="${escapeAttr(rule.value || '')}">
+    <div class="exclusion-actions">
+      <button type="button" class="btn btn-secondary btn-sm criteria-remove-btn remove-rule" title="Eliminar regla">✕</button>
     </div>
-    <div class="criteria-field exclusion-minwords-field" style="display:none">
-      <label class="criteria-field-label">Mín. palabras</label>
-      <input type="number" class="criteria-input exclusion-minwords" min="2" max="10" value="${escapeAttr(String(rule.minWords ?? 2))}">
-    </div>
-    <button type="button" class="btn btn-secondary btn-sm criteria-remove-btn remove-rule" title="Eliminar regla">✕</button>
   `;
 
   const typeSelect = row.querySelector('.exclusion-type');
@@ -247,9 +252,9 @@ function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) 
 
   function syncFields() {
     const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === typeSelect.value);
-    propField.style.display = opt?.needsProperty ? '' : 'none';
-    valueField.style.display = opt?.needsValue ? '' : 'none';
-    minWordsField.style.display = opt?.needsMinWords ? '' : 'none';
+    propField.hidden = !opt?.needsProperty;
+    valueField.hidden = !opt?.needsValue;
+    minWordsField.hidden = !opt?.needsMinWords;
     if (opt?.needsProperty && !propInput.value && opt.defaultProperty) {
       propInput.placeholder = opt.defaultProperty;
     }
