@@ -60,35 +60,59 @@
         <button class="btn btn-primary btn-sm" id="saveCriteriaPanelBtn">Guardar criterios</button>
       </div>
       <div class="panel-body criteria-panel-body" id="criteriaEditor">
-        <p class="criteria-hint">
-          Solo se fusionan registros donde <strong>todas</strong> las propiedades de cada regla coincidan.
-          Ejemplo: <code>name, email</code> fusiona dos "David" solo si también tienen el mismo email.
-        </p>
-
-        <div class="criteria-section-title">Reglas de coincidencia</div>
-        <div id="matchRulesList" class="criteria-rules-list"></div>
-        <div class="criteria-add-row">
-          <button type="button" class="btn btn-secondary btn-sm" id="addMatchRuleBtn">+ Regla personalizada</button>
-          <select id="matchPresetSelect" class="criteria-preset-select"></select>
+        <div class="criteria-section-block" id="matchSection" data-section="match">
+          <div class="criteria-section-header">
+            <div class="criteria-section-title">Reglas de coincidencia</div>
+            <button type="button" class="btn btn-secondary btn-sm section-edit-btn" data-section="match">Editar</button>
+          </div>
+          <div class="criteria-section-summary" id="matchSectionSummary"></div>
+          <div class="criteria-section-body" id="matchSectionBody" hidden>
+            <p class="criteria-hint">
+              Solo se fusionan registros donde <strong>todas</strong> las propiedades de cada regla coincidan.
+            </p>
+            <div id="matchRulesList" class="criteria-rules-list"></div>
+            <div class="criteria-add-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="addMatchRuleBtn">+ Regla personalizada</button>
+              <select id="matchPresetSelect" class="criteria-preset-select"></select>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm section-save-btn" data-section="match">Guardar sección</button>
+          </div>
         </div>
 
-        <div class="criteria-section-title" style="margin-top:28px">Reglas de predominancia</div>
-        <p class="criteria-hint">Orden de prioridad para el registro principal. La primera regla que desempate gana.</p>
-        <div id="primaryRulesList" class="criteria-rules-list"></div>
-        <div class="criteria-add-row">
-          <button type="button" class="btn btn-secondary btn-sm" id="addPrimaryRuleBtn">+ Añadir regla</button>
+        <div class="criteria-section-block" id="primarySection" data-section="primary">
+          <div class="criteria-section-header">
+            <div class="criteria-section-title">Reglas de predominancia</div>
+            <button type="button" class="btn btn-secondary btn-sm section-edit-btn" data-section="primary">Editar</button>
+          </div>
+          <div class="criteria-section-summary" id="primarySectionSummary"></div>
+          <div class="criteria-section-body" id="primarySectionBody" hidden>
+            <p class="criteria-hint">Orden de prioridad para el registro principal. La primera regla que desempate gana.</p>
+            <div id="primaryRulesList" class="criteria-rules-list"></div>
+            <div class="criteria-add-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="addPrimaryRuleBtn">+ Añadir regla</button>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm section-save-btn" data-section="primary">Guardar sección</button>
+          </div>
         </div>
 
-        <div class="criteria-section-title" style="margin-top:24px">Reglas de exclusión</div>
-        <p class="criteria-hint">Omiten registros o dividen grupos antes de fusionar. Las de grupo evitan unir contactos con datos incompatibles (ej. teléfonos distintos).</p>
-        <div id="exclusionRulesList" class="criteria-rules-list"></div>
-        <div class="criteria-add-row">
-          <button type="button" class="btn btn-secondary btn-sm" id="addExclusionRuleBtn">+ Añadir exclusión</button>
-          <select id="exclusionPresetSelect" class="criteria-preset-select"></select>
+        <div class="criteria-section-block" id="exclusionSection" data-section="exclusion">
+          <div class="criteria-section-header">
+            <div class="criteria-section-title">Reglas de exclusión</div>
+            <button type="button" class="btn btn-secondary btn-sm section-edit-btn" data-section="exclusion">Editar</button>
+          </div>
+          <div class="criteria-section-summary" id="exclusionSectionSummary"></div>
+          <div class="criteria-section-body" id="exclusionSectionBody" hidden>
+            <p class="criteria-hint">Omiten registros o dividen grupos antes de fusionar.</p>
+            <div id="exclusionRulesList" class="criteria-rules-list"></div>
+            <div class="criteria-add-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="addExclusionRuleBtn">+ Añadir exclusión</button>
+              <select id="exclusionPresetSelect" class="criteria-preset-select"></select>
+            </div>
+            <button type="button" class="btn btn-primary btn-sm section-save-btn" data-section="exclusion">Guardar sección</button>
+          </div>
         </div>
 
         <div id="criteriaSaveStatus"></div>
-        <div id="criteriaSummary" style="margin-top:20px"></div>
       </div>
     </div>
 
