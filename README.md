@@ -72,24 +72,27 @@ Si no añades ninguna, el stack **igualmente despliega** con `admin` / `admin` y
 | `SESSION_SECRET` | Secreto para sesiones y cifrado de tokens |
 | `ADMIN_PASSWORD` | Contraseña del usuario `admin` (solo al crear la BD) |
 | `SESSION_COOKIE_SECURE` | `true` solo con HTTPS delante del contenedor |
-| `TRUST_PROXY` | `true` detrás de Nginx/Traefik (por defecto) |
+| `TRUST_PROXY` | `true` detrás de Plesk / proxy inverso (por defecto) |
 | `PORT` | Puerto publicado en el **host** (por defecto `3080`; el contenedor sigue en 3000) |
 
 Plantilla: `portainer.env.example`
 
-### Opción A2 — HTTPS con Let's Encrypt automático (Traefik)
+7. **Deploy the stack**
 
-Si quieres **certificado Let's Encrypt con renovación automática** sin configurar Nginx a mano:
+> **Puerto en uso:** define `PORT=3080` (u otro libre) si el 3000 está ocupado.
 
-1. DNS: `fusionador.tudominio.com` → IP del VPS  
-2. Puertos **80** y **443** libres  
-3. En Portainer, compose path: **`docker-compose.letsencrypt.yml`**  
-4. Variables: `FUSIONADOR_DOMAIN`, `LETSENCRYPT_EMAIL`, `SESSION_SECRET`, `ADMIN_PASSWORD`  
-   (plantilla: `portainer.letsencrypt.env.example`)
+### HTTPS con Plesk
 
-Guía detallada: [`deploy/LETSENCRYPT.md`](deploy/LETSENCRYPT.md)
+El certificado Let's Encrypt se gestiona en **Plesk** (no en Docker). Configura un **proxy inverso** del dominio hacia `http://127.0.0.1:3080`.
 
-> **Puerto en uso:** si ves `Bind for 0.0.0.0:3000 failed: port is already allocated`, define `PORT=3080` (u otro libre) en Environment variables y redeploy. La app quedará en `http://tu-vps:3080`.
+Guía: [`deploy/HTTPS.md`](deploy/HTTPS.md)
+
+Variables en el stack:
+
+```env
+TRUST_PROXY=true
+SESSION_COOKIE_SECURE=auto
+```
 
 ### Opción B — Clonar en el VPS
 
@@ -101,22 +104,7 @@ nano .env
 docker compose up -d --build
 ```
 
-### Reverse proxy y HTTPS
-
-La app va **detrás de Nginx/Traefik/Caddy** con TLS. Guía completa: [`deploy/HTTPS.md`](deploy/HTTPS.md)
-
-En Portainer:
-
-```env
-TRUST_PROXY=true
-SESSION_COOKIE_SECURE=auto
-```
-
-Comprueba tras desplegar: `https://tu-dominio/api/health` → debe mostrar `"secure": true` y `"forwardedProto": "https"`.
-
-Ejemplo Nginx: [`deploy/nginx-fusionador.conf.example`](deploy/nginx-fusionador.conf.example)
-
-### Opción B — Clonar en el VPS
+## Uso
 
 1. Inicia sesión y crea un proyecto.
 2. Configura el token PAT de HubSpot y el tipo de entidad.

@@ -1,31 +1,56 @@
-# HTTPS detrás de reverse proxy
+# HTTPS con Plesk (proxy inverso)
 
-La app escucha **HTTP** dentro del contenedor (puerto 3000). El TLS lo termina Nginx, Traefik o Caddy en el VPS.
+La app escucha **HTTP** en el contenedor (puerto 3000, publicado en el host como `3080` por defecto). **Plesk** termina el TLS con Let's Encrypt y hace de proxy hacia el contenedor.
 
-## Variables en Portainer
+## 1. Contenedor en Portainer
+
+Sigue usando `docker-compose.portainer.yml` (sin Traefik ni Certbot en Docker).
+
+Variables recomendadas:
 
 ```
 TRUST_PROXY=true
 SESSION_COOKIE_SECURE=auto
+PORT=3080
 ```
 
-| Valor | Comportamiento |
-|-------|----------------|
-| `SESSION_COOKIE_SECURE=auto` | Cookie `Secure` solo si el proxy envía `X-Forwarded-Proto: https` (recomendado) |
-| `SESSION_COOKIE_SECURE=true` | Siempre cookie Secure (requiere `TRUST_PROXY=true`) |
-| `SESSION_COOKIE_SECURE=false` | Solo para pruebas en HTTP directo (`http://IP:3080`) |
+## 2. Certificado en Plesk
 
-Tras cambiar variables: **Update the stack** y reconstruye si actualizaste el código.
+1. En Plesk: **Dominios** → tu dominio → **Certificados SSL/TLS**.
+2. Instala **Let's Encrypt** (extensión gratuita de Plesk; Plesk renueva el certificado automáticamente).
+3. Activa **Redirigir de HTTP a HTTPS** si lo deseas.
 
-## Comprobar que el proxy envía cabeceras
+No hace falta ningún stack adicional en Docker para el certificado.
 
-Abre (o haz curl a):
+## 3. Proxy inverso en Plesk hacia el contenedor
+
+1. **Dominios** → **Hosting y DNS** → el subdominio (ej. `fusionador.tudominio.com`).
+2. **Proxy inverso** (o **Apache & nginx Settings** → modo proxy, según versión de Plesk).
+3. URL de destino: `http://127.0.0.1:3080` (o la IP interna del host + puerto del stack).
+4. Asegúrate de que Plesk/nginx reenvía las cabeceras:
+   - `X-Forwarded-Proto`
+   - `X-Forwarded-For`
+   - `Host`
+
+En la mayoría de instalaciones Plesk con proxy inverso oficial, esto ya viene configurado.
+
+### Timeouts largos (simulación / fusión)
+
+Las operaciones pueden durar muchos minutos. En **Configuración adicional de nginx** del dominio (si Plesk lo permite), o en Directivas adicionales:
+
+```nginx
+proxy_read_timeout 3600s;
+proxy_send_timeout 3600s;
+proxy_buffering off;
+```
+
+## 4. Comprobar
 
 ```
 https://fusionador.tudominio.com/api/health
 ```
 
-Respuesta esperada con HTTPS correcto:
+Respuesta esperada:
 
 ```json
 {
@@ -37,43 +62,17 @@ Respuesta esperada con HTTPS correcto:
 }
 ```
 
-Si `forwardedProto` es `null` o `secure` es `false`, el proxy **no** está pasando `X-Forwarded-Proto`. Revisa la config de Nginx/Traefik.
-
-## Let's Encrypt (renovación automática)
-
-Guía completa: [`deploy/LETSENCRYPT.md`](deploy/LETSENCRYPT.md) — stack `docker-compose.letsencrypt.yml` con Traefik.
-
-## Nginx manual
-
-Ver `deploy/nginx-fusionador.conf.example`. Puntos críticos:
-
-- `proxy_set_header X-Forwarded-Proto $scheme;`
-- `proxy_buffering off;` y timeouts largos para simulación/fusión
-
-## Traefik (labels en el servicio)
-
-Si usas Traefik en la misma red Docker, puedes quitar `ports:` del compose y añadir:
-
-```yaml
-labels:
-  - traefik.enable=true
-  - traefik.http.routers.fusionador.rule=Host(`fusionador.tudominio.com`)
-  - traefik.http.routers.fusionador.entrypoints=websecure
-  - traefik.http.routers.fusionador.tls.certresolver=letsencrypt
-  - traefik.http.services.fusionador.loadbalancer.server.port=3000
-```
-
-Traefik envía `X-Forwarded-Proto` automáticamente.
+Si `forwardedProto` es `null`, el proxy de Plesk no está pasando `X-Forwarded-Proto`. Revisa la configuración del proxy inverso.
 
 ## Problemas frecuentes
 
-| Síntoma | Causa | Solución |
-|---------|-------|----------|
-| Login no mantiene sesión | Cookie Secure / proxy | `TRUST_PROXY=true`, `SESSION_COOKIE_SECURE=auto`, cabecera `X-Forwarded-Proto` |
-| Simulación se corta a mitad | Timeout del proxy | `proxy_read_timeout 3600s`, `proxy_buffering off` |
-| Funciona en `:3080` pero no en HTTPS | Proxy mal configurado | Revisar `/api/health` |
-| Bucle de redirección | HTTP y HTTPS mal enlazados | Un solo `server` 443 o redirect 80→443 |
+| Síntoma | Solución |
+|---------|----------|
+| Login no persiste | `TRUST_PROXY=true`, `SESSION_COOKIE_SECURE=auto`, certificado SSL activo en Plesk |
+| Simulación se corta | Aumentar `proxy_read_timeout` en nginx de Plesk |
+| Funciona en `:3080` pero no en HTTPS | Revisar proxy inverso y `/api/health` |
+| Error de certificado | Renovar Let's Encrypt desde Plesk → Certificados SSL/TLS |
 
-## No expongas el puerto 3080 a Internet
+## Seguridad
 
-En producción, deja el contenedor solo en red interna o `127.0.0.1:3080` y accede únicamente por el dominio HTTPS.
+No expongas el puerto `3080` a Internet si solo accedes por Plesk. En el firewall, permite 80/443 a Plesk y deja `3080` solo en `127.0.0.1` (opcional: en el compose usa `127.0.0.1:3080:3000` en lugar de `3080:3000`).
