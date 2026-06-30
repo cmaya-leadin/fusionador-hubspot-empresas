@@ -210,16 +210,63 @@ function createPrimaryRuleRow(rule = { type: 'max_filled_props', property: '' },
   return row;
 }
 
-function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) {
-  const row = document.createElement('div');
-  row.className = 'criteria-rule-card exclusion-rule-row';
+function parseExclusionRuleFromEditor(row) {
+  const type = row.querySelector('.exclusion-type').value;
+  const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === type);
+  const rule = { type };
+  if (opt?.needsProperty) {
+    const property = row.querySelector('.exclusion-prop').value.trim() || opt.defaultProperty;
+    if (property) rule.property = property;
+  }
+  if (opt?.needsValue) {
+    const value = row.querySelector('.exclusion-value').value.trim() || opt.defaultValue;
+    if (value != null && value !== '') rule.value = value;
+  }
+  if (opt?.needsMinWords) {
+    const minWords = Number(row.querySelector('.exclusion-minwords').value);
+    rule.minWords = Number.isFinite(minWords) && minWords >= 2 ? Math.floor(minWords) : 2;
+  }
+  if (type === 'different_phones') rule.requiresNameMatch = true;
+  return rule;
+}
+
+function readExclusionRuleFromRow(row) {
+  if (row.dataset.editing === 'true') {
+    return parseExclusionRuleFromEditor(row);
+  }
+  try {
+    return JSON.parse(row.dataset.rule || '{}');
+  } catch {
+    return parseExclusionRuleFromEditor(row);
+  }
+}
+
+function setExclusionRowView(row, rule, entityType) {
+  row.dataset.rule = JSON.stringify(rule);
+  row.dataset.editing = 'false';
+  row.classList.remove('is-editing');
+
+  const view = row.querySelector('.exclusion-view');
+  const editor = row.querySelector('.exclusion-editor');
+  const summary = row.querySelector('.exclusion-summary-text');
+
+  summary.textContent = describeExclusionRule(rule);
+  view.hidden = false;
+  editor.hidden = true;
+}
+
+function setExclusionRowEditing(row, rule, entityType) {
+  row.dataset.editing = 'true';
+  row.classList.add('is-editing');
+
   const options = exclusionOptionsForEntity(entityType);
   const type = rule.type || options[0]?.type || 'generic_domains';
   const optionsHtml = options.map(
     (o) => `<option value="${o.type}" ${o.type === type ? 'selected' : ''}>${o.label}</option>`,
   ).join('');
 
-  row.innerHTML = `
+  const editor = row.querySelector('.exclusion-editor');
+  editor.innerHTML = `
     <div class="criteria-field criteria-field-grow">
       <label class="criteria-field-label">Tipo de exclusión</label>
       <select class="criteria-input criteria-select exclusion-type">${optionsHtml}</select>
@@ -238,11 +285,19 @@ function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) 
         <input type="number" class="criteria-input exclusion-minwords" min="2" max="10" value="${escapeAttr(String(rule.minWords ?? 2))}">
       </div>
     </div>
-    <div class="exclusion-actions">
-      <button type="button" class="btn btn-secondary btn-sm criteria-remove-btn remove-rule" title="Eliminar regla">✕</button>
+    <div class="exclusion-editor-actions">
+      <button type="button" class="btn btn-primary btn-sm save-exclusion">Listo</button>
+      <button type="button" class="btn btn-secondary btn-sm cancel-exclusion">Cancelar</button>
     </div>
   `;
 
+  wireExclusionEditor(row, entityType);
+
+  row.querySelector('.exclusion-view').hidden = true;
+  editor.hidden = false;
+}
+
+function wireExclusionEditor(row, entityType) {
   const typeSelect = row.querySelector('.exclusion-type');
   const propField = row.querySelector('.exclusion-prop-field');
   const valueField = row.querySelector('.exclusion-value-field');
@@ -265,7 +320,60 @@ function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) 
 
   typeSelect.onchange = syncFields;
   syncFields();
-  row.querySelector('.remove-rule').onclick = () => row.remove();
+
+  row.querySelector('.save-exclusion').onclick = () => {
+    const rule = parseExclusionRuleFromEditor(row);
+    row.dataset.isNew = 'false';
+    setExclusionRowView(row, rule, entityType);
+    updateCriteriaSummary(readCriteriaForm(entityType), entityType);
+  };
+
+  row.querySelector('.cancel-exclusion').onclick = () => {
+    if (row.dataset.isNew === 'true') {
+      row.remove();
+    } else {
+      try {
+        setExclusionRowView(row, JSON.parse(row.dataset.rule), entityType);
+      } catch {
+        row.remove();
+      }
+    }
+    updateCriteriaSummary(readCriteriaForm(entityType), entityType);
+  };
+}
+
+function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType, startEditing = false) {
+  const row = document.createElement('div');
+  row.className = 'criteria-rule-card exclusion-rule-row';
+  row.dataset.isNew = startEditing ? 'true' : 'false';
+
+  row.innerHTML = `
+    <div class="exclusion-view">
+      <span class="exclusion-summary-text"></span>
+      <div class="exclusion-actions">
+        <button type="button" class="btn btn-secondary btn-sm edit-exclusion">Editar</button>
+        <button type="button" class="btn btn-secondary btn-sm criteria-remove-btn remove-rule" title="Eliminar">✕</button>
+      </div>
+    </div>
+    <div class="exclusion-editor" hidden></div>
+  `;
+
+  row.querySelector('.edit-exclusion').onclick = () => {
+    const current = readExclusionRuleFromRow(row);
+    setExclusionRowEditing(row, current, entityType);
+  };
+
+  row.querySelector('.remove-rule').onclick = () => {
+    row.remove();
+    updateCriteriaSummary(readCriteriaForm(entityType), entityType);
+  };
+
+  if (startEditing) {
+    setExclusionRowEditing(row, rule, entityType);
+  } else {
+    setExclusionRowView(row, rule, entityType);
+  }
+
   return row;
 }
 
@@ -277,15 +385,15 @@ function renumberPrimaryRules() {
   });
 }
 
-function appendExclusionRule(editor, rule, entityType) {
+function appendExclusionRule(editor, rule, entityType, startEditing = false) {
   editor.querySelector('#exclusionRulesList').appendChild(
-    createExclusionRuleRow(rule, entityType),
+    createExclusionRuleRow(rule, entityType, startEditing),
   );
 }
 
 function hasExclusionRuleType(editor, type) {
   return [...editor.querySelectorAll('#exclusionRulesList .exclusion-rule-row')].some(
-    (row) => row.querySelector('.exclusion-type').value === type,
+    (row) => readExclusionRuleFromRow(row).type === type,
   );
 }
 
@@ -371,25 +479,9 @@ function readCriteriaForm(entityType) {
     return rule;
   });
 
-  const exclusionRules = [...editor.querySelectorAll('#exclusionRulesList .exclusion-rule-row')].map((row) => {
-    const type = row.querySelector('.exclusion-type').value;
-    const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === type);
-    const rule = { type };
-    if (opt?.needsProperty) {
-      const property = row.querySelector('.exclusion-prop').value.trim() || opt.defaultProperty;
-      if (property) rule.property = property;
-    }
-    if (opt?.needsValue) {
-      const value = row.querySelector('.exclusion-value').value.trim() || opt.defaultValue;
-      if (value != null) rule.value = value;
-    }
-    if (opt?.needsMinWords) {
-      const minWords = Number(row.querySelector('.exclusion-minwords').value);
-      rule.minWords = Number.isFinite(minWords) && minWords >= 2 ? Math.floor(minWords) : 2;
-    }
-    if (type === 'different_phones') rule.requiresNameMatch = true;
-    return rule;
-  });
+  const exclusionRules = [...editor.querySelectorAll('#exclusionRulesList .exclusion-rule-row')]
+    .map((row) => readExclusionRuleFromRow(row))
+    .filter((r) => r && r.type);
 
   return { matchRules, primaryRules, exclusionRules };
 }
@@ -458,7 +550,12 @@ function setupCriteriaEditor(project, projectId, onSaved) {
 
   editor.querySelector('#addExclusionRuleBtn').onclick = () => {
     const defaults = exclusionOptionsForEntity(project.entityType);
-    appendExclusionRule(editor, { type: defaults[0]?.type || 'generic_domains' }, project.entityType);
+    appendExclusionRule(
+      editor,
+      { type: defaults[0]?.type || 'generic_domains' },
+      project.entityType,
+      true,
+    );
   };
 
   editor.querySelector('#matchPresetSelect').onchange = (e) => {
@@ -486,7 +583,7 @@ function setupCriteriaEditor(project, projectId, onSaved) {
     if (idx === '') return;
     const presets = EXCLUSION_PRESETS[project.entityType] || EXCLUSION_PRESETS.companies;
     const preset = presets[Number(idx)];
-    if (preset) appendExclusionRule(editor, preset, project.entityType);
+    if (preset) appendExclusionRule(editor, preset, project.entityType, false);
     e.target.value = '';
   };
 

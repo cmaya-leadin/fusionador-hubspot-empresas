@@ -691,43 +691,76 @@ tbody tr:hover {
 }
 
 .criteria-rule-card.exclusion-rule-row {
-  grid-template-columns: minmax(200px, 1.4fr) minmax(0, 1fr) auto;
+  display: block;
+  padding: 12px 16px;
+}
+
+.criteria-rule-card.exclusion-rule-row.is-editing {
+  padding: 16px 18px;
+}
+
+.exclusion-view {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 36px;
+}
+
+.exclusion-summary-text {
+  flex: 1;
+  font-size: 14px;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.exclusion-editor {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
   align-items: end;
+}
+
+.exclusion-editor-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .exclusion-extra-fields {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: end;
-  min-width: 0;
-}
-
-.exclusion-extra-fields:empty {
-  display: none;
+  display: contents;
 }
 
 .exclusion-extra-fields .criteria-field {
-  flex: 1 1 140px;
-  min-width: 120px;
-  max-width: 220px;
+  min-width: 0;
 }
 
 .exclusion-actions {
   display: flex;
-  align-self: end;
-  margin-bottom: 2px;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.exclusion-actions .criteria-remove-btn,
+.exclusion-actions .edit-exclusion {
+  height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .exclusion-actions .criteria-remove-btn {
   width: 36px;
   min-width: 36px;
-  height: 36px;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 0;
+}
+
+.exclusion-actions .edit-exclusion {
+  min-width: auto;
 }
 
 .criteria-summary-grid h4 {
@@ -1136,8 +1169,13 @@ tbody tr:hover {
   .criteria-rule-row.primary-rule-row,
   .criteria-rule-card,
   .criteria-rule-card.primary-rule-row,
-  .criteria-rule-card.exclusion-rule-row {
+  .criteria-rule-card.exclusion-rule-row,
+  .exclusion-editor {
     grid-template-columns: 1fr;
+  }
+
+  .exclusion-view {
+    flex-wrap: wrap;
   }
 
   .criteria-rule-card.primary-rule-row .criteria-order {
