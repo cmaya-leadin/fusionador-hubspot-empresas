@@ -87,6 +87,37 @@ const API = {
     return this.mergeWithStream(projectId, 'retry-failed', { ...options, retryFailed: true }, handlers);
   },
 
+  getActiveMergeJob(projectId) {
+    return this.request(`/merge/${projectId}/active-job`);
+  },
+
+  /**
+   * Reconecta al progreso de un proceso en curso o reciente (SSE).
+   */
+  subscribeActiveMergeStream(projectId, handlers = {}, since = 0) {
+    const qs = since > 0 ? `?since=${since}` : '';
+    return this.consumeSseResponse(
+      fetch(`/api/merge/${projectId}/active-job/stream${qs}`, { credentials: 'same-origin' }),
+      handlers,
+    );
+  },
+
+  /**
+   * @param {Promise<Response>} responsePromise
+   * @param {{ onProgress?: Function, onLog?: Function }} handlers
+   */
+  async consumeSseResponse(responsePromise, handlers = {}) {
+    const res = await responsePromise;
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) window.location.href = '/';
+      throw new Error(data.error || `Error ${res.status}`);
+    }
+
+    return this.readSseBody(res, handlers);
+  },
+
   /**
    * Ejecuta simulación, fusión o reintento con progreso en tiempo real (SSE).
    * @param {string} projectId
@@ -95,19 +126,18 @@ const API = {
    * @param {{ onProgress?: Function, onLog?: Function }} handlers
    */
   async mergeWithStream(projectId, action, filters = {}, handlers = {}) {
-    const res = await fetch(`/api/merge/${projectId}/${action}?stream=1`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ ...filters, stream: true }),
-    });
+    return this.consumeSseResponse(
+      fetch(`/api/merge/${projectId}/${action}?stream=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ ...filters, stream: true }),
+      }),
+      handlers,
+    );
+  },
 
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 401) window.location.href = '/';
-      throw new Error(data.error || `Error ${res.status}`);
-    }
-
+  readSseBody(res, handlers = {}) {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';

@@ -10,6 +10,16 @@ import { executeMergeRun } from '../merge-run.js';
 import { parseMergeCriteria } from '../merge-criteria.js';
 import { createMergeProgress, initSse, writeSse } from '../merge-progress.js';
 import {
+  startJob,
+  recordProgress,
+  recordLog,
+  completeJob,
+  failJob,
+  getJobSnapshot,
+  getJobForStream,
+  subscribeJob,
+} from '../merge-job-registry.js';
+import {
   executeRetryFailedMerges,
   getFailedMergesSummary,
   loadFailedMergeOperations,
@@ -155,11 +165,19 @@ async function handleMerge(req, res, dryRun) {
   /** @type {ReturnType<typeof createMergeProgress> | null} */
   let progress = null;
 
+  const jobMode = options.retryFailed ? 'retry' : dryRun ? 'simulate' : 'apply';
+
   if (stream) {
     initSse(res);
+    startJob(project.id, { mode: jobMode, dryRun });
     progress = createMergeProgress((payload) => {
-      if (payload.type === 'log') writeSse(res, 'log', payload);
-      else if (payload.type === 'progress') writeSse(res, 'progress', payload);
+      if (payload.type === 'log') {
+        recordLog(project.id, payload);
+        writeSse(res, 'log', payload);
+      } else if (payload.type === 'progress') {
+        recordProgress(project.id, payload);
+        writeSse(res, 'progress', payload);
+      }
     });
   }
 
@@ -234,6 +252,7 @@ async function handleMerge(req, res, dryRun) {
     };
 
     if (stream) {
+      completeJob(project.id, payload);
       writeSse(res, 'complete', payload);
       res.end();
       return;
@@ -264,6 +283,7 @@ async function handleMerge(req, res, dryRun) {
     });
 
     if (stream) {
+      failJob(project.id, message);
       writeSse(res, 'error', { message });
       res.end();
       return;
@@ -290,6 +310,61 @@ router.get('/:id/failed-merges', async (req, res) => {
 router.post('/:id/retry-failed', (req, res) => {
   req.body = { ...(req.body || {}), retryFailed: true, dryRun: false, stream: req.body?.stream };
   return handleMerge(req, res, false);
+});
+
+router.get('/:id/active-job', (req, res) => {
+  const project = getProjectById(Number(req.params.id));
+  if (!canAccessProject(project, req)) {
+    return res.status(404).json({ error: 'Proyecto no encontrado' });
+  }
+
+  res.json(getJobSnapshot(project.id));
+});
+
+router.get('/:id/active-job/stream', (req, res) => {
+  const project = getProjectById(Number(req.params.id));
+  if (!canAccessProject(project, req)) {
+    return res.status(404).json({ error: 'Proyecto no encontrado' });
+  }
+
+  const job = getJobForStream(project.id);
+  if (!job) {
+    return res.status(404).json({ error: 'No hay proceso de fusión activo o reciente' });
+  }
+
+  initSse(res);
+
+  let cursor = Number(req.query.since);
+  if (!Number.isFinite(cursor) || cursor < 0) cursor = 0;
+  if (cursor > job.events.length) cursor = job.events.length;
+
+  function drain() {
+    while (cursor < job.events.length) {
+      const { event, data } = job.events[cursor++];
+      writeSse(res, event, data);
+      if (event === 'complete' || event === 'error') return true;
+    }
+    return false;
+  }
+
+  if (drain()) {
+    res.end();
+    return;
+  }
+
+  if (job.status !== 'running') {
+    res.end();
+    return;
+  }
+
+  const unsubscribe = subscribeJob(project.id, () => {
+    if (drain()) {
+      unsubscribe();
+      res.end();
+    }
+  });
+
+  req.on('close', () => unsubscribe());
 });
 
 router.get('/:id/runs', (req, res) => {

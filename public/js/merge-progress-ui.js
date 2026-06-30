@@ -36,7 +36,50 @@ const MergeProgressUI = {
   },
 
   /**
-   * @param {Record<string, unknown>} data
+   * Restaura el panel desde un snapshot del servidor (sin duplicar eventos).
+   * @param {{ mode?: string, status?: string, progress?: object, logs?: object[] }} job
+   */
+  prepareReconnect(job) {
+    if (!this.panel) this.init();
+    const mode = job.mode || 'apply';
+    const titles = {
+      apply: 'Fusión en producción',
+      simulate: 'Simulación de fusión',
+      retry: 'Reintento de fusiones fallidas',
+    };
+
+    this.panel.classList.remove('hidden');
+    this.panel.dataset.mode = mode;
+    document.getElementById('mergeProgressTitle').textContent = titles[mode] || 'Proceso de fusión';
+
+    const statusEl = document.getElementById('mergeProgressStatus');
+    if (job.status === 'completed') {
+      statusEl.textContent = 'Finalizado';
+      statusEl.className = 'merge-progress-status done';
+    } else if (job.status === 'error') {
+      statusEl.textContent = 'Error';
+      statusEl.className = 'merge-progress-status error';
+    } else {
+      statusEl.textContent = 'En curso…';
+      statusEl.className = 'merge-progress-status running';
+    }
+
+    document.getElementById('mergeProgressSummary').classList.add('hidden');
+    if (this.logEl) this.logEl.innerHTML = '';
+    for (const entry of job.logs || []) {
+      this.appendLog(String(entry.message || ''), entry.level || 'info', entry.ts);
+    }
+    if (job.progress) {
+      this.onProgress(job.progress);
+    } else if (job.status === 'running') {
+      document.getElementById('mergeProgressMessage').textContent = 'Proceso en curso en el servidor…';
+    }
+
+    this.panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  /**
+   * @param {number} [ts]
    */
   onProgress(data) {
     const percent = Number(data.percent) || 0;
@@ -194,12 +237,13 @@ const MergeProgressUI = {
   /**
    * @param {string} message
    * @param {string} level
+   * @param {number} [ts]
    */
-  appendLog(message, level = 'info') {
+  appendLog(message, level = 'info', ts) {
     if (!this.logEl || !message) return;
     const line = document.createElement('div');
     line.className = `merge-log-line merge-log-${level}`;
-    const time = new Date().toLocaleTimeString('es-ES');
+    const time = new Date(ts || Date.now()).toLocaleTimeString('es-ES');
     line.innerHTML = `<span class="merge-log-time">${time}</span>${escapeHtml(message)}`;
     this.logEl.appendChild(line);
     this.logEl.scrollTop = this.logEl.scrollHeight;

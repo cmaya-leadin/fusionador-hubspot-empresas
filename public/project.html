@@ -31,6 +31,12 @@
   </div>
 
   <main class="main">
+    <div class="merge-job-banner hidden" id="mergeJobBanner" role="status" aria-live="polite">
+      <span class="merge-job-banner-dot" id="mergeJobBannerDot"></span>
+      <span class="merge-job-banner-text" id="mergeJobBannerText"></span>
+      <button type="button" class="btn btn-secondary btn-sm" id="mergeJobBannerScroll">Ver detalle</button>
+    </div>
+
     <div class="panel merge-progress-panel hidden" id="mergeProgressPanel">
       <div class="panel-header">
         <h2 id="mergeProgressTitle">Proceso de fusión</h2>
@@ -248,6 +254,7 @@
     let project = null;
     let lastResult = null;
     let logsInterval = null;
+    let mergeJobPollTimer = null;
     let failedMergesSummary = { count: 0 };
 
     if (!projectId) window.location.href = '/dashboard.html';
@@ -261,6 +268,7 @@
       await refreshFailedMergesButton();
       await loadLogs();
       logsInterval = setInterval(loadLogs, 10000);
+      await reconnectActiveMergeJob();
     }
 
     async function loadProject() {
@@ -295,6 +303,9 @@
       document.getElementById('retryFailedBtn').onclick = runRetryFailed;
       document.getElementById('refreshLogsBtn').onclick = loadLogs;
       document.getElementById('deleteProjectBtn').onclick = deleteProject;
+      document.getElementById('mergeJobBannerScroll').onclick = () => {
+        document.getElementById('mergeProgressPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
       document.getElementById('cfgEntity').onchange = (e) => {
         updateMatchPresets(e.target.value);
       };
@@ -356,6 +367,184 @@
       }
     }
 
+    function setMergeButtonsBusy(busy, mode) {
+      const simBtn = document.getElementById('simulateBtn');
+      const applyBtn = document.getElementById('applyBtn');
+      const retryBtn = document.getElementById('retryFailedBtn');
+      simBtn.disabled = busy;
+      applyBtn.disabled = busy;
+      retryBtn.disabled = busy;
+      if (busy) {
+        if (mode === 'apply') applyBtn.textContent = 'Aplicando…';
+        else if (mode === 'simulate') simBtn.textContent = 'Simulando…';
+      } else {
+        simBtn.textContent = 'Simular Fusión';
+        applyBtn.textContent = 'Aplicar Fusión';
+      }
+    }
+
+    function stopMergeJobPolling() {
+      if (mergeJobPollTimer) {
+        clearInterval(mergeJobPollTimer);
+        mergeJobPollTimer = null;
+      }
+    }
+
+    function modeLabel(mode) {
+      return { apply: 'Fusión', simulate: 'Simulación', retry: 'Reintento' }[mode] || 'Proceso';
+    }
+
+    function updateMergeJobBanner(job, active) {
+      const banner = document.getElementById('mergeJobBanner');
+      const text = document.getElementById('mergeJobBannerText');
+      const dot = document.getElementById('mergeJobBannerDot');
+      if (!job) {
+        banner.classList.add('hidden');
+        banner.classList.remove('is-done', 'is-error');
+        return;
+      }
+
+      banner.classList.remove('hidden');
+      const label = modeLabel(job.mode);
+      const pct = Math.round(Number(job.progress?.percent) || 0);
+
+      if (active || job.status === 'running') {
+        banner.classList.remove('is-done', 'is-error');
+        dot.className = 'merge-job-banner-dot running';
+        const detail = job.progress?.message ? ` — ${job.progress.message}` : '';
+        text.textContent = `${label} en curso · ${pct}%${detail}`;
+        return;
+      }
+
+      if (job.status === 'completed') {
+        banner.classList.add('is-done');
+        banner.classList.remove('is-error');
+        dot.className = 'merge-job-banner-dot done';
+        const when = job.finishedAt
+          ? new Date(job.finishedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          : '';
+        const stats = job.result?.stats || {};
+        let summary = '';
+        if (job.mode === 'simulate') {
+          summary = `${stats.mergesPlanned ?? 0} fusiones planificadas`;
+        } else if (job.mode === 'retry') {
+          summary = `${stats.mergesApplied ?? 0} aplicadas, ${stats.mergesFailed ?? 0} fallidas`;
+        } else {
+          summary = `${stats.mergesApplied ?? 0} aplicadas, ${stats.mergesFailed ?? 0} fallidas`;
+        }
+        text.textContent = `${label} finalizada${when ? ` a las ${when}` : ''} · ${summary}`;
+        return;
+      }
+
+      if (job.status === 'error') {
+        banner.classList.add('is-error');
+        banner.classList.remove('is-done');
+        dot.className = 'merge-job-banner-dot error';
+        text.textContent = `${label} con error: ${job.error || 'desconocido'}`;
+      }
+    }
+
+    function startMergeJobPolling(updatePanel = false) {
+      if (mergeJobPollTimer) return;
+      mergeJobPollTimer = setInterval(async () => {
+        try {
+          const { active, job } = await API.getActiveMergeJob(projectId);
+          if (!job) {
+            stopMergeJobPolling();
+            updateMergeJobBanner(null, false);
+            return;
+          }
+          updateMergeJobBanner(job, active);
+          if (updatePanel && active && job.progress) {
+            MergeProgressUI.onProgress(job.progress);
+          }
+          if (!active && job.status === 'completed' && job.result) {
+            stopMergeJobPolling();
+            lastResult = job.result;
+            MergeProgressUI.onComplete(job.result);
+            handleMergeResult(job.result, job.mode);
+            setMergeButtonsBusy(false);
+            await refreshFailedMergesButton();
+            loadLogs();
+          } else if (!active && job.status === 'error') {
+            stopMergeJobPolling();
+            MergeProgressUI.onError(job.error || 'Error en el proceso');
+            setMergeButtonsBusy(false);
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 4000);
+    }
+
+    function handleMergeResult(result, mode) {
+      if (mode === 'retry') updateRetryStats(result);
+      else renderResults(result);
+    }
+
+    async function reconnectActiveMergeJob() {
+      try {
+        const { active, recent, job } = await API.getActiveMergeJob(projectId);
+        if (!job) return;
+
+        updateMergeJobBanner(job, active);
+
+        if (active) {
+          setMergeButtonsBusy(true, job.mode);
+          MergeProgressUI.prepareReconnect(job);
+          startMergeJobPolling(true);
+
+          try {
+            const result = await API.subscribeActiveMergeStream(projectId, {
+              onProgress: (data) => {
+                MergeProgressUI.onProgress(data);
+                updateMergeJobBanner({
+                  ...job,
+                  status: 'running',
+                  progress: data,
+                }, true);
+              },
+              onLog: (data) => MergeProgressUI.onLog(data),
+            }, job.eventCount || 0);
+            lastResult = result;
+            MergeProgressUI.onComplete(result);
+            handleMergeResult(result, job.mode);
+            updateMergeJobBanner({
+              ...job,
+              status: 'completed',
+              finishedAt: Date.now(),
+              result,
+              progress: { percent: 100, ...(job.progress || {}) },
+            }, false);
+            await refreshFailedMergesButton();
+            loadLogs();
+          } catch (err) {
+            if (!String(err.message || '').includes('Conexión cerrada')) {
+              MergeProgressUI.onError(err.message);
+            }
+          } finally {
+            stopMergeJobPolling();
+            setMergeButtonsBusy(false);
+            await refreshFailedMergesButton();
+          }
+          return;
+        }
+
+        if (recent) {
+          MergeProgressUI.prepareReconnect(job);
+          if (job.status === 'completed' && job.result) {
+            lastResult = job.result;
+            MergeProgressUI.onComplete(job.result);
+            handleMergeResult(job.result, job.mode);
+          } else if (job.status === 'error') {
+            MergeProgressUI.onError(job.error || 'Error en el proceso');
+          }
+        }
+      } catch {
+        /* sin proceso activo */
+      }
+    }
+
     async function runMergeJob(action) {
       const isApply = action === 'apply';
       const isRetry = action === 'retry';
@@ -378,17 +567,26 @@
       const simBtn = document.getElementById('simulateBtn');
       const applyBtn = document.getElementById('applyBtn');
       const retryBtn = document.getElementById('retryFailedBtn');
-      simBtn.disabled = true;
-      applyBtn.disabled = true;
-      retryBtn.disabled = true;
-      if (isApply) applyBtn.textContent = 'Aplicando…';
-      else if (!isRetry) simBtn.textContent = 'Simulando…';
+      setMergeButtonsBusy(true, isRetry ? 'retry' : isApply ? 'apply' : 'simulate');
 
       MergeProgressUI.show(isRetry ? 'retry' : isApply ? 'apply' : 'simulate');
+      updateMergeJobBanner({
+        mode: isRetry ? 'retry' : isApply ? 'apply' : 'simulate',
+        status: 'running',
+        progress: { percent: 0 },
+      }, true);
+      startMergeJobPolling(true);
 
       try {
         const streamHandlers = {
-          onProgress: (data) => MergeProgressUI.onProgress(data),
+          onProgress: (data) => {
+            MergeProgressUI.onProgress(data);
+            updateMergeJobBanner({
+              mode: isRetry ? 'retry' : isApply ? 'apply' : 'simulate',
+              status: 'running',
+              progress: data,
+            }, true);
+          },
           onLog: (data) => MergeProgressUI.onLog(data),
         };
 
@@ -399,19 +597,28 @@
         }
 
         MergeProgressUI.onComplete(lastResult);
-        if (isRetry) updateRetryStats(lastResult);
-        else renderResults(lastResult);
+        handleMergeResult(lastResult, isRetry ? 'retry' : isApply ? 'apply' : 'simulate');
+        updateMergeJobBanner({
+          mode: isRetry ? 'retry' : isApply ? 'apply' : 'simulate',
+          status: 'completed',
+          finishedAt: Date.now(),
+          result: lastResult,
+          progress: { percent: 100 },
+        }, false);
         await refreshFailedMergesButton();
         loadLogs();
       } catch (err) {
         MergeProgressUI.onError(err.message);
+        updateMergeJobBanner({
+          mode: isRetry ? 'retry' : isApply ? 'apply' : 'simulate',
+          status: 'error',
+          error: err.message,
+        }, false);
         alert('Error: ' + err.message);
         loadLogs();
       } finally {
-        simBtn.disabled = false;
-        applyBtn.disabled = false;
-        simBtn.textContent = 'Simular Fusión';
-        applyBtn.textContent = 'Aplicar Fusión';
+        stopMergeJobPolling();
+        setMergeButtonsBusy(false);
         await refreshFailedMergesButton();
       }
     }
