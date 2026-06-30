@@ -79,22 +79,12 @@
           <button type="button" class="btn btn-secondary btn-sm" id="addPrimaryRuleBtn">+ Añadir regla</button>
         </div>
 
-        <div class="criteria-section-title" style="margin-top:24px">Exclusiones</div>
-        <div class="form-check">
-          <input type="checkbox" id="critSkipInactive">
-          <label for="critSkipInactive">Omitir inactivos</label>
-        </div>
-        <div class="form-check">
-          <input type="checkbox" id="critSkipProveedor">
-          <label for="critSkipProveedor">Omitir solo proveedor (empresas)</label>
-        </div>
-        <div class="form-check">
-          <input type="checkbox" id="critExcludeGeneric">
-          <label for="critExcludeGeneric">Excluir dominios genéricos (gmail, etc.)</label>
-        </div>
-        <div class="form-check" id="critMinNameWordsRow" hidden>
-          <input type="checkbox" id="critMinNameWords">
-          <label for="critMinNameWords">Solo nombres compuestos (mín. 2 palabras)</label>
+        <div class="criteria-section-title" style="margin-top:24px">Reglas de exclusión</div>
+        <p class="criteria-hint">Omiten registros o dividen grupos antes de fusionar. Las de grupo evitan unir contactos con datos incompatibles (ej. teléfonos distintos).</p>
+        <div id="exclusionRulesList" class="criteria-rules-list"></div>
+        <div class="criteria-add-row">
+          <button type="button" class="btn btn-secondary btn-sm" id="addExclusionRuleBtn">+ Añadir exclusión</button>
+          <select id="exclusionPresetSelect" class="criteria-preset-select"></select>
         </div>
 
         <div id="criteriaSaveStatus"></div>
@@ -437,8 +427,13 @@
       const stats = result.stats;
       document.getElementById('statGroups').textContent = stats.mergeGroups;
       let sub = `${stats.eligibleRecords} elegibles de ${stats.totalRecords}`;
-      if (result.criteria?.minNameWords >= 2) {
-        sub += ' · filtro nombre ≥2 palabras';
+      const exclusions = result.criteria?.exclusionRules || [];
+      if (exclusions.some((r) => r.type === 'min_name_words')) {
+        const rule = exclusions.find((r) => r.type === 'min_name_words');
+        sub += ` · nombre ≥${rule?.minWords ?? 2} palabras`;
+      }
+      if (exclusions.some((r) => r.type === 'different_phones' || r.type === 'different_property')) {
+        sub += ' · exclusiones de grupo activas';
       }
       if (stats.recordsWithNameAndPhone != null && stats.recordsWithNameAndPhone > 0) {
         sub += ` · ${stats.recordsWithNameAndPhone} con nombre+telf.`;

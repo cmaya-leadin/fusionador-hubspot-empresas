@@ -680,6 +680,21 @@ tbody tr:hover {
   gap: 24px;
 }
 
+.criteria-summary-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+}
+
+.criteria-rule-card.exclusion-rule-row {
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  align-items: end;
+}
+
 .criteria-summary-grid h4 {
   font-size: 13px;
   color: var(--navy);
@@ -1059,14 +1074,16 @@ tbody tr:hover {
 }
 
 @media (max-width: 768px) {
-  .criteria-summary-grid {
+  .criteria-summary-grid,
+  .criteria-summary-grid-3 {
     grid-template-columns: 1fr;
   }
 
   .criteria-rule-row,
   .criteria-rule-row.primary-rule-row,
   .criteria-rule-card,
-  .criteria-rule-card.primary-rule-row {
+  .criteria-rule-card.primary-rule-row,
+  .criteria-rule-card.exclusion-rule-row {
     grid-template-columns: 1fr;
   }
 

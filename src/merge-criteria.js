@@ -1,14 +1,17 @@
 /**
  * @typedef {{ properties: string[], label?: string }} MatchRule
  * @typedef {{ type: string, property?: string }} PrimaryRule
+ * @typedef {{ type: string, property?: string, value?: string, minWords?: number, label?: string, requiresNameMatch?: boolean }} ExclusionRule
  *
  * @typedef {Object} MergeCriteria
  * @property {MatchRule[]} matchRules
  * @property {PrimaryRule[]} primaryRules
- * @property {boolean} skipInactive
- * @property {boolean} skipOnlyProveedor
- * @property {boolean} excludeGenericDomains
- * @property {number} [minNameWords] Mín. palabras en el nombre (contactos); 0 = sin filtro
+ * @property {ExclusionRule[]} exclusionRules
+ * @property {boolean} [skipInactive] @deprecated usar exclusionRules
+ * @property {boolean} [skipOnlyProveedor] @deprecated
+ * @property {boolean} [excludeGenericDomains] @deprecated
+ * @property {number} [minNameWords] @deprecated
+ * @property {boolean} [skipDifferentPhones] @deprecated
  * @property {string | null} [navProperty]
  * @property {string | null} [inactiveProperty]
  * @property {string | null} [inactiveValue]
@@ -16,6 +19,66 @@
  * @property {boolean} [matchByDomain] @deprecated
  * @property {boolean} [matchByEmail] @deprecated
  */
+
+export const EXCLUSION_RULE_OPTIONS = [
+  {
+    type: 'inactive',
+    label: 'Omitir registro inactivo',
+    needsProperty: true,
+    needsValue: true,
+    defaultProperty: 'estado',
+    defaultValue: 'inactive',
+    entityTypes: ['companies'],
+  },
+  {
+    type: 'only_proveedor',
+    label: 'Omitir solo proveedor',
+    entityTypes: ['companies'],
+  },
+  {
+    type: 'generic_domains',
+    label: 'Ignorar dominios genéricos al emparejar',
+    entityTypes: ['companies', 'contacts'],
+  },
+  {
+    type: 'min_name_words',
+    label: 'Nombre con mínimo de palabras',
+    needsMinWords: true,
+    defaultMinWords: 2,
+    entityTypes: ['contacts'],
+  },
+  {
+    type: 'different_phones',
+    label: 'No fusionar teléfonos distintos en el grupo',
+    entityTypes: ['contacts'],
+    requiresNameMatch: true,
+  },
+  {
+    type: 'different_property',
+    label: 'No fusionar si propiedad distinta en el grupo',
+    needsProperty: true,
+    entityTypes: ['companies', 'contacts'],
+  },
+  {
+    type: 'record_property_filled',
+    label: 'Omitir registro con propiedad informada',
+    needsProperty: true,
+    entityTypes: ['companies', 'contacts'],
+  },
+  {
+    type: 'record_property_empty',
+    label: 'Omitir registro con propiedad vacía',
+    needsProperty: true,
+    entityTypes: ['companies', 'contacts'],
+  },
+  {
+    type: 'record_property_equals',
+    label: 'Omitir registro si propiedad = valor',
+    needsProperty: true,
+    needsValue: true,
+    entityTypes: ['companies', 'contacts'],
+  },
+];
 
 export const PRIMARY_RULE_OPTIONS = [
   { type: 'property_filled', label: 'Propiedad informada', needsProperty: true },
@@ -57,10 +120,11 @@ export const DEFAULT_MERGE_CRITERIA = {
     { type: 'oldest', property: 'createdate' },
     { type: 'min_id' },
   ],
-  skipInactive: true,
-  skipOnlyProveedor: true,
-  excludeGenericDomains: true,
-  minNameWords: 0,
+  exclusionRules: [
+    { type: 'inactive', property: 'estado', value: 'inactive' },
+    { type: 'only_proveedor' },
+    { type: 'generic_domains' },
+  ],
   navProperty: 'codigo_cuenta_nav',
   inactiveProperty: 'estado',
   inactiveValue: 'inactive',
@@ -80,10 +144,7 @@ export const DEFAULT_CONTACT_CRITERIA = {
     { type: 'oldest', property: 'createdate' },
     { type: 'min_id' },
   ],
-  skipInactive: false,
-  skipOnlyProveedor: false,
-  excludeGenericDomains: true,
-  minNameWords: 0,
+  exclusionRules: [{ type: 'generic_domains' }],
   navProperty: null,
   inactiveProperty: null,
   inactiveValue: null,
@@ -185,15 +246,104 @@ export function parseMergeCriteria(raw, entityType = 'companies') {
   return {
     matchRules,
     primaryRules: parsePrimaryRules(parsed.primaryRules, defaults),
-    skipInactive: parsed.skipInactive ?? defaults.skipInactive,
-    skipOnlyProveedor: parsed.skipOnlyProveedor ?? defaults.skipOnlyProveedor,
-    excludeGenericDomains:
-      parsed.excludeGenericDomains ?? defaults.excludeGenericDomains,
-    minNameWords: parseMinNameWords(parsed.minNameWords, defaults.minNameWords),
+    exclusionRules: normalizeExclusionRules(parsed, defaults, entityType),
     navProperty: parsed.navProperty ?? defaults.navProperty,
     inactiveProperty: parsed.inactiveProperty ?? defaults.inactiveProperty,
     inactiveValue: parsed.inactiveValue ?? defaults.inactiveValue,
   };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {ExclusionRule[]}
+ */
+function parseExclusionRules(raw) {
+  if (!Array.isArray(raw)) return [];
+  const validTypes = new Set(EXCLUSION_RULE_OPTIONS.map((o) => o.type));
+
+  return raw
+    .filter((r) => r && typeof r === 'object' && validTypes.has(String(r.type)))
+    .map((r) => {
+      /** @type {ExclusionRule} */
+      const rule = { type: String(r.type) };
+      if (r.property) rule.property = String(r.property);
+      if (r.value != null) rule.value = String(r.value);
+      if (r.label) rule.label = String(r.label);
+      if (r.requiresNameMatch === false) rule.requiresNameMatch = false;
+      if (r.type === 'min_name_words') {
+        const n = Number(r.minWords);
+        rule.minWords = Number.isFinite(n) && n > 0 ? Math.floor(n) : 2;
+      }
+      return rule;
+    });
+}
+
+/**
+ * @param {Record<string, unknown>} parsed
+ * @param {MergeCriteria} defaults
+ * @param {'companies' | 'contacts'} entityType
+ * @returns {ExclusionRule[]}
+ */
+function normalizeExclusionRules(parsed, defaults, entityType) {
+  const fromArray = parseExclusionRules(parsed.exclusionRules);
+  if (fromArray.length > 0) return fromArray;
+
+  /** @type {ExclusionRule[]} */
+  const rules = [];
+
+  if (parsed.skipInactive ?? defaults.skipInactive) {
+    rules.push({
+      type: 'inactive',
+      property: String(parsed.inactiveProperty ?? defaults.inactiveProperty ?? 'estado'),
+      value: String(parsed.inactiveValue ?? defaults.inactiveValue ?? 'inactive'),
+    });
+  }
+
+  if (parsed.skipOnlyProveedor ?? defaults.skipOnlyProveedor) {
+    rules.push({ type: 'only_proveedor' });
+  }
+
+  if (parsed.excludeGenericDomains ?? defaults.excludeGenericDomains !== false) {
+    rules.push({ type: 'generic_domains' });
+  }
+
+  const minWords = parseMinNameWords(parsed.minNameWords, 0);
+  if (minWords >= 2 && entityType === 'contacts') {
+    rules.push({ type: 'min_name_words', minWords });
+  }
+
+  if (parsed.skipDifferentPhones && entityType === 'contacts') {
+    rules.push({ type: 'different_phones', requiresNameMatch: true });
+  }
+
+  if (rules.length > 0) return rules;
+
+  return (defaults.exclusionRules || []).map((r) => ({ ...r }));
+}
+
+/**
+ * @param {MergeCriteria} criteria
+ * @returns {ExclusionRule[]}
+ */
+export function getExclusionRules(criteria) {
+  return criteria.exclusionRules || [];
+}
+
+/**
+ * @param {MergeCriteria} criteria
+ * @param {string} type
+ */
+export function hasExclusionType(criteria, type) {
+  return getExclusionRules(criteria).some((r) => r.type === type);
+}
+
+/**
+ * @param {MergeCriteria} criteria
+ */
+export function getMinNameWords(criteria) {
+  const rule = getExclusionRules(criteria).find((r) => r.type === 'min_name_words');
+  if (!rule) return 0;
+  return rule.minWords ?? 2;
 }
 
 /**
@@ -217,6 +367,7 @@ function structuredCloneDefaults(defaults) {
       properties: [...r.properties],
     })),
     primaryRules: defaults.primaryRules.map((r) => ({ ...r })),
+    exclusionRules: (defaults.exclusionRules || []).map((r) => ({ ...r })),
   };
 }
 
@@ -277,6 +428,25 @@ export function collectCriteriaProperties(criteria, entityType) {
     }
   }
 
+  for (const rule of getExclusionRules(criteria)) {
+    if (rule.property) {
+      if (rule.property === 'name' && entityType === 'contacts') {
+        props.add('firstname');
+        props.add('lastname');
+      } else if (rule.property === 'phone' || rule.property === 'mobilephone') {
+        props.add('phone');
+        props.add('mobilephone');
+        props.add('hs_calculated_phone_number');
+        props.add('hs_searchable_calculated_international_phone_number');
+        props.add('hs_whatsapp_phone_number');
+      } else {
+        props.add(rule.property);
+      }
+    }
+    if (rule.type === 'inactive' && !rule.property) props.add('estado');
+    if (rule.type === 'only_proveedor') props.add('tipo_relacion_negocio');
+  }
+
   props.add('createdate');
   props.add('hs_lastmodifieddate');
   props.add('lastmodifieddate');
@@ -287,6 +457,27 @@ export function collectCriteriaProperties(criteria, entityType) {
   }
 
   return [...props];
+}
+
+/**
+ * @param {ExclusionRule} rule
+ */
+export function describeExclusionRuleOption(rule) {
+  const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === rule.type);
+  const base = rule.label || opt?.label || rule.type;
+  if (rule.type === 'min_name_words') {
+    return `${base} (≥ ${rule.minWords ?? 2})`;
+  }
+  if (rule.type === 'record_property_equals' && rule.property) {
+    return `${base}: ${rule.property} = ${rule.value ?? ''}`;
+  }
+  if (rule.type === 'inactive' && rule.property) {
+    return `${base}: ${rule.property} = ${rule.value ?? 'inactive'}`;
+  }
+  if (rule.property && rule.type !== 'different_phones') {
+    return `${base} (${rule.property})`;
+  }
+  return base;
 }
 
 /**

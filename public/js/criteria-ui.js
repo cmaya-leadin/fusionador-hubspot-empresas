@@ -7,6 +7,18 @@ const PRIMARY_RULE_OPTIONS = [
   { type: 'min_id', label: 'ID más bajo (desempate)', needsProperty: false },
 ];
 
+const EXCLUSION_RULE_OPTIONS = [
+  { type: 'inactive', label: 'Omitir registro inactivo', needsProperty: true, needsValue: true, defaultProperty: 'estado', defaultValue: 'inactive', entityTypes: ['companies'] },
+  { type: 'only_proveedor', label: 'Omitir solo proveedor', entityTypes: ['companies'] },
+  { type: 'generic_domains', label: 'Ignorar dominios genéricos al emparejar', entityTypes: ['companies', 'contacts'] },
+  { type: 'min_name_words', label: 'Nombre con mínimo de palabras', needsMinWords: true, defaultMinWords: 2, entityTypes: ['contacts'] },
+  { type: 'different_phones', label: 'No fusionar teléfonos distintos en el grupo', entityTypes: ['contacts'] },
+  { type: 'different_property', label: 'No fusionar si propiedad distinta en el grupo', needsProperty: true, entityTypes: ['companies', 'contacts'] },
+  { type: 'record_property_filled', label: 'Omitir registro con propiedad informada', needsProperty: true, entityTypes: ['companies', 'contacts'] },
+  { type: 'record_property_empty', label: 'Omitir registro con propiedad vacía', needsProperty: true, entityTypes: ['companies', 'contacts'] },
+  { type: 'record_property_equals', label: 'Omitir registro si propiedad = valor', needsProperty: true, needsValue: true, entityTypes: ['companies', 'contacts'] },
+];
+
 const MATCH_PRESETS = {
   companies: [
     { label: 'Nombre', properties: ['name'] },
@@ -25,10 +37,52 @@ const MATCH_PRESETS = {
   ],
 };
 
+const EXCLUSION_PRESETS = {
+  companies: [
+    { type: 'inactive', property: 'estado', value: 'inactive' },
+    { type: 'only_proveedor' },
+    { type: 'generic_domains' },
+    { type: 'record_property_filled', property: 'codigo_cuenta_nav' },
+    { type: 'different_property', property: 'domain' },
+  ],
+  contacts: [
+    { type: 'min_name_words', minWords: 2 },
+    { type: 'different_phones' },
+    { type: 'different_property', property: 'email' },
+    { type: 'generic_domains' },
+    { type: 'record_property_filled', property: 'hs_lead_status' },
+    { type: 'record_property_empty', property: 'email' },
+  ],
+};
+
+function exclusionOptionsForEntity(entityType) {
+  return EXCLUSION_RULE_OPTIONS.filter(
+    (o) => !o.entityTypes || o.entityTypes.includes(entityType),
+  );
+}
+
 function describePrimaryRule(rule) {
   const opt = PRIMARY_RULE_OPTIONS.find((o) => o.type === rule.type);
   const label = opt?.label || rule.type;
   return rule.property ? `${label} → ${rule.property}` : label;
+}
+
+function describeExclusionRule(rule) {
+  const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === rule.type);
+  const base = rule.label || opt?.label || rule.type;
+  if (rule.type === 'min_name_words') {
+    return `${base} (≥ ${rule.minWords ?? 2})`;
+  }
+  if (rule.type === 'record_property_equals' && rule.property) {
+    return `${base}: ${rule.property} = ${rule.value ?? ''}`;
+  }
+  if (rule.type === 'inactive' && rule.property) {
+    return `${base}: ${rule.property} = ${rule.value ?? 'inactive'}`;
+  }
+  if (rule.property && rule.type !== 'different_phones') {
+    return `${base} (${rule.property})`;
+  }
+  return base;
 }
 
 function renderCriteriaSummary(criteria, entityType) {
@@ -40,20 +94,12 @@ function renderCriteriaSummary(criteria, entityType) {
     .map((r, i) => `<span class="criteria-order">${i + 1}.</span> ${escapeHtml(describePrimaryRule(r))}`)
     .join('<br>');
 
-  const exclusions = [];
-  if (criteria.skipInactive) exclusions.push('omitir inactivos');
-  if (criteria.skipOnlyProveedor) exclusions.push('omitir solo proveedor');
-  if (criteria.excludeGenericDomains !== false) exclusions.push('sin dominios genéricos');
-  if ((criteria.minNameWords || 0) >= 2) {
-    exclusions.push(`nombre ≥ ${criteria.minNameWords} palabras`);
-  }
-
-  const exclusionsHtml = exclusions.length
-    ? `<p class="criteria-hint" style="margin-top:12px"><strong>Filtros:</strong> ${exclusions.map(escapeHtml).join(' · ')}</p>`
-    : '';
+  const exclusionHtml = (criteria.exclusionRules || [])
+    .map((r) => `<span class="badge badge-warn">${escapeHtml(describeExclusionRule(r))}</span>`)
+    .join(' ');
 
   return `
-    <div class="criteria-summary-grid">
+    <div class="criteria-summary-grid criteria-summary-grid-3">
       <div>
         <h4>Resumen — Coincidencia</h4>
         <div class="criteria-badges">${matchHtml || '<em>Sin reglas</em>'}</div>
@@ -62,8 +108,11 @@ function renderCriteriaSummary(criteria, entityType) {
         <h4>Resumen — Predominancia</h4>
         <div class="criteria-primary-list">${primaryHtml || '<em>Sin reglas</em>'}</div>
       </div>
+      <div>
+        <h4>Resumen — Exclusiones</h4>
+        <div class="criteria-badges">${exclusionHtml || '<em>Sin reglas</em>'}</div>
+      </div>
     </div>
-    ${exclusionsHtml}
   `;
 }
 
@@ -160,6 +209,61 @@ function createPrimaryRuleRow(rule = { type: 'max_filled_props', property: '' },
   return row;
 }
 
+function createExclusionRuleRow(rule = { type: 'generic_domains' }, entityType) {
+  const row = document.createElement('div');
+  row.className = 'criteria-rule-card exclusion-rule-row';
+  const options = exclusionOptionsForEntity(entityType);
+  const type = rule.type || options[0]?.type || 'generic_domains';
+  const optionsHtml = options.map(
+    (o) => `<option value="${o.type}" ${o.type === type ? 'selected' : ''}>${o.label}</option>`,
+  ).join('');
+
+  row.innerHTML = `
+    <div class="criteria-field criteria-field-grow">
+      <label class="criteria-field-label">Tipo de exclusión</label>
+      <select class="criteria-input criteria-select exclusion-type">${optionsHtml}</select>
+    </div>
+    <div class="criteria-field exclusion-prop-field" style="display:none">
+      <label class="criteria-field-label">Propiedad</label>
+      <input type="text" class="criteria-input exclusion-prop" placeholder="email, phone, estado…" value="${escapeAttr(rule.property || '')}">
+    </div>
+    <div class="criteria-field exclusion-value-field" style="display:none">
+      <label class="criteria-field-label">Valor</label>
+      <input type="text" class="criteria-input exclusion-value" placeholder="Valor a excluir" value="${escapeAttr(rule.value || '')}">
+    </div>
+    <div class="criteria-field exclusion-minwords-field" style="display:none">
+      <label class="criteria-field-label">Mín. palabras</label>
+      <input type="number" class="criteria-input exclusion-minwords" min="2" max="10" value="${escapeAttr(String(rule.minWords ?? 2))}">
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm criteria-remove-btn remove-rule" title="Eliminar regla">✕</button>
+  `;
+
+  const typeSelect = row.querySelector('.exclusion-type');
+  const propField = row.querySelector('.exclusion-prop-field');
+  const valueField = row.querySelector('.exclusion-value-field');
+  const minWordsField = row.querySelector('.exclusion-minwords-field');
+  const propInput = row.querySelector('.exclusion-prop');
+  const valueInput = row.querySelector('.exclusion-value');
+
+  function syncFields() {
+    const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === typeSelect.value);
+    propField.style.display = opt?.needsProperty ? '' : 'none';
+    valueField.style.display = opt?.needsValue ? '' : 'none';
+    minWordsField.style.display = opt?.needsMinWords ? '' : 'none';
+    if (opt?.needsProperty && !propInput.value && opt.defaultProperty) {
+      propInput.placeholder = opt.defaultProperty;
+    }
+    if (opt?.needsValue && !valueInput.value && opt.defaultValue) {
+      valueInput.placeholder = opt.defaultValue;
+    }
+  }
+
+  typeSelect.onchange = syncFields;
+  syncFields();
+  row.querySelector('.remove-rule').onclick = () => row.remove();
+  return row;
+}
+
 function renumberPrimaryRules() {
   const editor = getCriteriaContainer();
   if (!editor) return;
@@ -168,14 +272,37 @@ function renumberPrimaryRules() {
   });
 }
 
+function appendExclusionRule(editor, rule, entityType) {
+  editor.querySelector('#exclusionRulesList').appendChild(
+    createExclusionRuleRow(rule, entityType),
+  );
+}
+
+function hasExclusionRuleType(editor, type) {
+  return [...editor.querySelectorAll('#exclusionRulesList .exclusion-rule-row')].some(
+    (row) => row.querySelector('.exclusion-type').value === type,
+  );
+}
+
+function addDefaultContactExclusions(editor) {
+  if (!hasExclusionRuleType(editor, 'min_name_words')) {
+    appendExclusionRule(editor, { type: 'min_name_words', minWords: 2 }, 'contacts');
+  }
+  if (!hasExclusionRuleType(editor, 'different_phones')) {
+    appendExclusionRule(editor, { type: 'different_phones' }, 'contacts');
+  }
+}
+
 function loadCriteriaForm(criteria, entityType) {
   const editor = getCriteriaContainer();
   if (!editor) return;
 
   const matchList = editor.querySelector('#matchRulesList');
   const primaryList = editor.querySelector('#primaryRulesList');
+  const exclusionList = editor.querySelector('#exclusionRulesList');
   matchList.innerHTML = '';
   primaryList.innerHTML = '';
+  exclusionList.innerHTML = '';
 
   for (const rule of criteria.matchRules || []) {
     matchList.appendChild(createMatchRuleRow(rule, entityType));
@@ -185,20 +312,13 @@ function loadCriteriaForm(criteria, entityType) {
     primaryList.appendChild(createPrimaryRuleRow(rule, i));
   });
 
-  editor.querySelector('#critSkipInactive').checked = !!criteria.skipInactive;
-  editor.querySelector('#critSkipProveedor').checked = !!criteria.skipOnlyProveedor;
-  editor.querySelector('#critExcludeGeneric').checked = criteria.excludeGenericDomains !== false;
-
-  const minNameRow = editor.querySelector('#critMinNameWordsRow');
-  const minNameCheck = editor.querySelector('#critMinNameWords');
-  if (minNameRow && minNameCheck) {
-    const isContacts = entityType === 'contacts';
-    minNameRow.hidden = !isContacts;
-    minNameCheck.checked = isContacts && (criteria.minNameWords || 0) >= 2;
+  for (const rule of criteria.exclusionRules || []) {
+    exclusionList.appendChild(createExclusionRuleRow(rule, entityType));
   }
 
   updateCriteriaSummary(criteria, entityType);
   updateMatchPresets(entityType);
+  updateExclusionPresets(entityType);
   setCriteriaStatus('');
 }
 
@@ -209,6 +329,15 @@ function updateMatchPresets(entityType) {
   const presets = MATCH_PRESETS[entityType] || MATCH_PRESETS.companies;
   select.innerHTML = '<option value="">Añadir regla predefinida…</option>' +
     presets.map((p, i) => `<option value="${i}">${p.label}</option>`).join('');
+}
+
+function updateExclusionPresets(entityType) {
+  const editor = getCriteriaContainer();
+  const select = editor?.querySelector('#exclusionPresetSelect');
+  if (!select) return;
+  const presets = EXCLUSION_PRESETS[entityType] || EXCLUSION_PRESETS.companies;
+  select.innerHTML = '<option value="">Añadir exclusión predefinida…</option>' +
+    presets.map((p, i) => `<option value="${i}">${escapeHtml(describeExclusionRule(p))}</option>`).join('');
 }
 
 function readCriteriaForm(entityType) {
@@ -237,18 +366,27 @@ function readCriteriaForm(entityType) {
     return rule;
   });
 
-  const minNameCheck = editor.querySelector('#critMinNameWords');
-  const minNameWords =
-    entityType === 'contacts' && minNameCheck?.checked ? 2 : 0;
+  const exclusionRules = [...editor.querySelectorAll('#exclusionRulesList .exclusion-rule-row')].map((row) => {
+    const type = row.querySelector('.exclusion-type').value;
+    const opt = EXCLUSION_RULE_OPTIONS.find((o) => o.type === type);
+    const rule = { type };
+    if (opt?.needsProperty) {
+      const property = row.querySelector('.exclusion-prop').value.trim() || opt.defaultProperty;
+      if (property) rule.property = property;
+    }
+    if (opt?.needsValue) {
+      const value = row.querySelector('.exclusion-value').value.trim() || opt.defaultValue;
+      if (value != null) rule.value = value;
+    }
+    if (opt?.needsMinWords) {
+      const minWords = Number(row.querySelector('.exclusion-minwords').value);
+      rule.minWords = Number.isFinite(minWords) && minWords >= 2 ? Math.floor(minWords) : 2;
+    }
+    if (type === 'different_phones') rule.requiresNameMatch = true;
+    return rule;
+  });
 
-  return {
-    matchRules,
-    primaryRules,
-    skipInactive: editor.querySelector('#critSkipInactive').checked,
-    skipOnlyProveedor: editor.querySelector('#critSkipProveedor').checked,
-    excludeGenericDomains: editor.querySelector('#critExcludeGeneric').checked,
-    minNameWords,
-  };
+  return { matchRules, primaryRules, exclusionRules };
 }
 
 function updateCriteriaSummary(criteria, entityType) {
@@ -313,6 +451,11 @@ function setupCriteriaEditor(project, projectId, onSaved) {
     list.appendChild(createPrimaryRuleRow({ type: 'max_filled_props' }, list.children.length));
   };
 
+  editor.querySelector('#addExclusionRuleBtn').onclick = () => {
+    const defaults = exclusionOptionsForEntity(project.entityType);
+    appendExclusionRule(editor, { type: defaults[0]?.type || 'generic_domains' }, project.entityType);
+  };
+
   editor.querySelector('#matchPresetSelect').onchange = (e) => {
     const idx = e.target.value;
     if (idx === '') return;
@@ -327,10 +470,18 @@ function setupCriteriaEditor(project, projectId, onSaved) {
         preset.properties?.length === 1 &&
         preset.properties[0] === 'name'
       ) {
-        const minNameCheck = editor.querySelector('#critMinNameWords');
-        if (minNameCheck) minNameCheck.checked = true;
+        addDefaultContactExclusions(editor);
       }
     }
+    e.target.value = '';
+  };
+
+  editor.querySelector('#exclusionPresetSelect').onchange = (e) => {
+    const idx = e.target.value;
+    if (idx === '') return;
+    const presets = EXCLUSION_PRESETS[project.entityType] || EXCLUSION_PRESETS.companies;
+    const preset = presets[Number(idx)];
+    if (preset) appendExclusionRule(editor, preset, project.entityType);
     e.target.value = '';
   };
 

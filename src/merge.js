@@ -1,5 +1,10 @@
 import { normalizeDomain, isGenericEmailDomain } from './domain.js';
-import { parseMergeCriteria } from './merge-criteria.js';
+import { parseMergeCriteria, getMinNameWords } from './merge-criteria.js';
+import {
+  isRecordExcludedFromMerge,
+  splitMembersByGroupExclusions,
+  usesGenericDomainExclusion,
+} from './merge-exclusions.js';
 
 /** @typedef {{ id: string, name: string, properties: Record<string, string> }} MergeRecord */
 
@@ -180,22 +185,32 @@ export function isOnlyProveedor(tipoRelacion) {
 
 /**
  * @param {MergeRecord} record
- * @param {import('./merge-criteria.js').MergeCriteria} criteria
  */
-export function isEligibleForMerge(record, criteria) {
-  const props = record.properties || {};
+export function getRecordNormalizedPhone(record) {
+  return normalizePhone(getContactPhoneRaw(record.properties || {}));
+}
 
-  if (criteria.skipInactive && criteria.inactiveProperty) {
-    const estado = props[criteria.inactiveProperty];
-    const inactiveVal = criteria.inactiveValue || 'inactive';
-    if (isInactiveRecord(estado, inactiveVal)) return false;
-  }
+/**
+ * Agrupa contactos con teléfonos compatibles (atajo sobre clusterMembersByCompatibleValues).
+ * @param {MergeRecord[]} members
+ * @returns {MergeRecord[][]}
+ */
+export function clusterMembersByCompatiblePhone(members) {
+  return splitMembersByGroupExclusions(
+    members,
+    { exclusionRules: [{ type: 'different_phones' }] },
+    'contacts',
+    ['name'],
+  ).clusters.filter((c) => c.length >= 2);
+}
 
-  if (criteria.skipOnlyProveedor) {
-    if (isOnlyProveedor(props.tipo_relacion_negocio)) return false;
-  }
-
-  return true;
+/**
+ * @param {MergeRecord} record
+ * @param {import('./merge-criteria.js').MergeCriteria} criteria
+ * @param {'companies' | 'contacts'} [entityType]
+ */
+export function isEligibleForMerge(record, criteria, entityType = 'companies') {
+  return !isRecordExcludedFromMerge(record, criteria, entityType);
 }
 
 /**
@@ -267,7 +282,7 @@ export function getMatchPropertyValue(record, prop, entityType = 'companies') {
  * @param {'companies' | 'contacts'} entityType
  */
 export function buildCompositeMatchKey(record, properties, criteria, entityType) {
-  const minNameWords = Number(criteria.minNameWords) || 0;
+  const minNameWords = getMinNameWords(criteria);
   if (minNameWords >= 2 && properties.includes('name')) {
     if (countDisplayNameWords(record, entityType) < minNameWords) return null;
   }
@@ -277,7 +292,7 @@ export function buildCompositeMatchKey(record, properties, criteria, entityType)
   for (const prop of properties) {
     let value = getMatchPropertyValue(record, prop, entityType);
 
-    if (prop === 'domain' && value && criteria.excludeGenericDomains) {
+    if (prop === 'domain' && value && usesGenericDomainExclusion(criteria)) {
       if (isGenericEmailDomain(value)) return null;
     }
 
@@ -530,26 +545,14 @@ export function filterMergeGroups(groups, options) {
  * @param {'companies' | 'contacts'} entityType
  */
 export function buildMergeGroups(records, criteria, entityType = 'companies') {
-  let skippedInactive = 0;
-  let skippedOnlyProveedor = 0;
+  let skippedExcluded = 0;
 
   /** @type {MergeRecord[]} */
   const eligible = [];
 
   for (const record of records) {
-    const props = record.properties || {};
-
-    if (
-      criteria.skipInactive &&
-      criteria.inactiveProperty &&
-      isInactiveRecord(props[criteria.inactiveProperty], criteria.inactiveValue || 'inactive')
-    ) {
-      skippedInactive += 1;
-      continue;
-    }
-
-    if (criteria.skipOnlyProveedor && isOnlyProveedor(props.tipo_relacion_negocio)) {
-      skippedOnlyProveedor += 1;
+    if (isRecordExcludedFromMerge(record, criteria, entityType)) {
+      skippedExcluded += 1;
       continue;
     }
 
@@ -563,6 +566,7 @@ export function buildMergeGroups(records, criteria, entityType = 'companies') {
   const groups = [];
   /** @type {Set<string>} */
   const seenMemberSets = new Set();
+  let splitByGroupExclusions = 0;
 
   const matchRules = criteria.matchRules?.length
     ? criteria.matchRules
@@ -590,19 +594,32 @@ export function buildMergeGroups(records, criteria, entityType = 'companies') {
     for (const [key, members] of byCompositeKey) {
       if (members.length < 2) continue;
 
-      const signature = groupMemberSignature(members);
-      if (seenMemberSets.has(signature)) continue;
-      seenMemberSets.add(signature);
-
-      groups.push(
-        buildDirectMergeGroup(
-          key,
-          matchType,
-          members,
-          criteria,
-          matchRule.label || matchType,
-        ),
+      const { clusters: memberClusters, splitCount } = splitMembersByGroupExclusions(
+        members,
+        criteria,
+        entityType,
+        matchRule.properties,
       );
+
+      if (splitCount > 0) splitByGroupExclusions += splitCount;
+
+      for (const cluster of memberClusters) {
+        if (cluster.length < 2) continue;
+
+        const signature = groupMemberSignature(cluster);
+        if (seenMemberSets.has(signature)) continue;
+        seenMemberSets.add(signature);
+
+        groups.push(
+          buildDirectMergeGroup(
+            key,
+            matchType,
+            cluster,
+            criteria,
+            matchRule.label || matchType,
+          ),
+        );
+      }
     }
   }
 
@@ -632,14 +649,17 @@ export function buildMergeGroups(records, criteria, entityType = 'companies') {
       groups,
       stats: {
         eligibleRecords: eligible.length,
-        skippedInactive,
-        skippedOnlyProveedor,
+        skippedExcluded,
+        skippedInactive: skippedExcluded,
+        skippedOnlyProveedor: 0,
         skippedNoName: 0,
         recordsWithName,
         recordsWithPhone,
         recordsWithNameAndPhone,
         recordsWithCompoundName,
         recordsWithSingleName,
+        splitByGroupExclusions,
+        splitByDifferentPhones: splitByGroupExclusions,
       },
     };
   }
@@ -648,12 +668,15 @@ export function buildMergeGroups(records, criteria, entityType = 'companies') {
     groups,
     stats: {
       eligibleRecords: eligible.length,
-      skippedInactive,
-      skippedOnlyProveedor,
+      skippedExcluded,
+      skippedInactive: skippedExcluded,
+      skippedOnlyProveedor: 0,
       skippedNoName: 0,
       recordsWithName,
       recordsWithPhone,
       recordsWithNameAndPhone,
+      splitByGroupExclusions,
+      splitByDifferentPhones: splitByGroupExclusions,
     },
   };
 }
@@ -1102,14 +1125,17 @@ export async function runEntityMerge(client, records, options = {}) {
   const stats = {
     totalRecords: records.length,
     eligibleRecords: buildStats.eligibleRecords,
-    skippedInactive: buildStats.skippedInactive,
-    skippedOnlyProveedor: buildStats.skippedOnlyProveedor,
+    skippedExcluded: buildStats.skippedExcluded ?? 0,
+    skippedInactive: buildStats.skippedInactive ?? buildStats.skippedExcluded ?? 0,
+    skippedOnlyProveedor: buildStats.skippedOnlyProveedor ?? 0,
     skippedNoName: buildStats.skippedNoName,
     recordsWithName: buildStats.recordsWithName ?? 0,
     recordsWithPhone: buildStats.recordsWithPhone ?? 0,
     recordsWithNameAndPhone: buildStats.recordsWithNameAndPhone ?? 0,
     recordsWithCompoundName: buildStats.recordsWithCompoundName ?? 0,
     recordsWithSingleName: buildStats.recordsWithSingleName ?? 0,
+    splitByGroupExclusions: buildStats.splitByGroupExclusions ?? buildStats.splitByDifferentPhones ?? 0,
+    splitByDifferentPhones: buildStats.splitByDifferentPhones ?? buildStats.splitByGroupExclusions ?? 0,
     mergeGroups: filteredGroups.length,
     mergesPlanned: operations.length,
     mergesConsolidated: consolidatedSaved,
