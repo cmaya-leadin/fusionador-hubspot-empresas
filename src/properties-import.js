@@ -30,7 +30,35 @@ function normalizeCell(v) {
 function normalizeInternalName(name) {
   const raw = normalizeCell(name);
   if (!raw) return '';
-  return raw.toLowerCase().replace(/\s+/g, '_');
+  return raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_');
+}
+
+/**
+ * Convierte ids de schema (p. ej. 0-1) al slug de API de propiedades.
+ * @param {string} raw
+ */
+export function resolveHubSpotObjectType(raw) {
+  const original = String(raw || '').trim();
+  const t = original.toLowerCase();
+  const map = {
+    '0-1': 'contacts',
+    '0-2': 'companies',
+    contact: 'contacts',
+    contacts: 'contacts',
+    contacto: 'contacts',
+    contactos: 'contacts',
+    company: 'companies',
+    companies: 'companies',
+    empresa: 'companies',
+    empresas: 'companies',
+  };
+  return map[t] || original;
 }
 
 /**
@@ -40,13 +68,15 @@ function normalizeInternalName(name) {
 export function normalizeGroupInternalName(displayLabel) {
   const raw = normalizeCell(displayLabel);
   if (!raw) return '';
-  return raw
+  let name = raw
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .replace(/_{2,}/g, '_');
+  if (/^\d/.test(name)) name = `g_${name}`;
+  return name;
 }
 
 /**

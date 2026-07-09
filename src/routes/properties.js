@@ -10,6 +10,7 @@ import {
   parseImportedRows,
   buildHubSpotPropertyPayload,
   ensurePropertyGroups,
+  resolveHubSpotObjectType,
 } from '../properties-import.js';
 
 const router = Router();
@@ -33,12 +34,14 @@ function parseXlsxBuffer(buffer) {
 const STANDARD_SCHEMAS = [
   {
     objectTypeId: 'contacts',
+    apiObjectType: 'contacts',
     name: 'contacts',
     labels: { singular: 'Contacto', plural: 'Contactos' },
     primaryDisplayProperty: 'firstname',
   },
   {
     objectTypeId: 'companies',
+    apiObjectType: 'companies',
     name: 'companies',
     labels: { singular: 'Empresa', plural: 'Empresas' },
     primaryDisplayProperty: 'name',
@@ -59,6 +62,7 @@ router.get('/:id/schemas', async (req, res) => {
       const data = await client.listSchemas();
       custom = (data?.results || []).map((s) => ({
         objectTypeId: s.objectTypeId,
+        apiObjectType: resolveHubSpotObjectType(s.name || s.objectTypeId),
         name: s.name,
         labels: s.labels || {},
         primaryDisplayProperty: s.primaryDisplayProperty || null,
@@ -88,7 +92,7 @@ router.post('/:id/import', upload.single('file'), async (req, res) => {
     const token = getProjectToken(project);
     if (!token) return res.status(400).json({ error: 'Token de HubSpot no configurado' });
 
-    const hsObjectType = String(req.body?.hsObjectType || '').trim();
+    const hsObjectType = resolveHubSpotObjectType(req.body?.hsObjectType || '');
     if (!hsObjectType) return res.status(400).json({ error: 'Selecciona un objeto de HubSpot' });
 
     const file = req.file;
@@ -155,7 +159,7 @@ router.post('/:id/create', async (req, res) => {
     const token = getProjectToken(project);
     if (!token) return res.status(400).json({ error: 'Token de HubSpot no configurado' });
 
-    const hsObjectType = String(req.body?.hsObjectType || project.hs_object_type || '').trim();
+    const hsObjectType = resolveHubSpotObjectType(req.body?.hsObjectType || project.hs_object_type || '');
     if (!hsObjectType) return res.status(400).json({ error: 'Selecciona un objeto de HubSpot' });
 
     /** @type {string[]} */
@@ -181,6 +185,9 @@ router.post('/:id/create', async (req, res) => {
 
     const groupLabels = rowsToCreate.map((row) => row.group).filter(Boolean);
     const groupResults = await ensurePropertyGroups(client, hsObjectType, groupLabels);
+    if (groupResults.errors.length) {
+      console.warn('[properties] Errores creando grupos:', groupResults.errors);
+    }
 
     const results = [];
     for (const name of names) {
@@ -215,17 +222,31 @@ router.post('/:id/create', async (req, res) => {
       },
     });
 
+    const createdCount = results.filter((r) => r.status === 'created').length;
+    const errorCount = results.filter((r) => r.status === 'error').length;
+
     addLog({
       userId: req.session.userId,
       projectId: project.id,
       action: 'PROPERTIES_CREATE',
-      status: results.some((r) => r.status === 'error') ? 'WARNING' : 'SUCCESS',
-      message: `Creación de propiedades en ${hsObjectType}: ${results.filter((r) => r.status === 'created').length} creadas`,
+      status: errorCount > 0 ? (createdCount > 0 ? 'WARNING' : 'ERROR') : 'SUCCESS',
+      message: `Creación de propiedades en ${hsObjectType}: ${createdCount} creadas${errorCount ? `, ${errorCount} con error` : ''}`,
     });
 
     res.json({ hsObjectType, groupResults, results });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    try {
+      addLog({
+        userId: req.session.userId,
+        projectId: Number(req.params.id),
+        action: 'PROPERTIES_CREATE',
+        status: 'ERROR',
+        message: `Error al crear propiedades: ${message}`,
+      });
+    } catch {
+      // ignore logging failures
+    }
     res.status(500).json({ error: message });
   }
 });

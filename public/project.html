@@ -426,7 +426,7 @@
       // precargar selección si ya existe
       if (project?.hsObjectType) {
         const sel = document.getElementById('hsObjectSelect');
-        if (sel) sel.value = project.hsObjectType;
+        if (sel) sel.value = resolveClientObjectType(project.hsObjectType);
       }
 
       // si hay import previa, renderizar
@@ -558,18 +558,74 @@
       return schema?.labels?.singular || schema?.name || schema?.objectTypeId || 'Objeto';
     }
 
+    function schemaApiType(schema) {
+      return schema?.apiObjectType || schema?.name || schema?.objectTypeId || '';
+    }
+
     async function loadSchemas() {
       try {
         setPropsStatus('Cargando objetos desde HubSpot…');
         const { schemas } = await API.getSchemas(projectId);
         const select = document.getElementById('hsObjectSelect');
         select.innerHTML = '<option value="">Selecciona…</option>' +
-          (schemas || []).map((s) => `<option value="${escapeHtml(s.objectTypeId)}">${escapeHtml(schemaLabel(s))} (${escapeHtml(s.objectTypeId)})</option>`).join('');
-        if (project?.hsObjectType) select.value = project.hsObjectType;
+          (schemas || []).map((s) => {
+            const apiType = schemaApiType(s);
+            return `<option value="${escapeHtml(apiType)}">${escapeHtml(schemaLabel(s))} (${escapeHtml(apiType)})</option>`;
+          }).join('');
+        const savedType = resolveClientObjectType(project?.hsObjectType || project?.propertiesImport?.hsObjectType);
+        if (savedType) select.value = savedType;
         setPropsStatus('Objetos cargados.');
       } catch (err) {
         setPropsStatus(err.message, true);
       }
+    }
+
+    function resolveClientObjectType(raw) {
+      const map = {
+        '0-1': 'contacts',
+        '0-2': 'companies',
+        contact: 'contacts',
+        contacts: 'contacts',
+        contacto: 'contacts',
+        contactos: 'contacts',
+        company: 'companies',
+        companies: 'companies',
+        empresa: 'companies',
+        empresas: 'companies',
+      };
+      const t = String(raw || '').trim().toLowerCase();
+      return map[t] || String(raw || '').trim();
+    }
+
+    function getCreatablePropertyNames() {
+      const imp = importedProps || project?.propertiesImport;
+      const rows = Array.isArray(imp?.rows) ? imp.rows : [];
+      return rows
+        .filter((r) => r.name && !r.exists && r.valid !== false)
+        .map((r) => String(r.name));
+    }
+
+    function scrollToPropsStatus() {
+      document.getElementById('propertiesPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      document.getElementById('propsStatus')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function formatCreateResultsSummary(res) {
+      const created = res.results.filter((r) => r.status === 'created').length;
+      const exists = res.results.filter((r) => r.status === 'exists').length;
+      const errors = res.results.filter((r) => r.status === 'error');
+      const skipped = res.results.filter((r) => r.status === 'skipped').length;
+      const groupsCreated = (res.groupResults?.created || []).length;
+      const groupErrors = (res.groupResults?.errors || []);
+      let msg = `Completado: ${created} creadas · ${exists} ya existían · ${errors.length} con error`;
+      if (skipped) msg += ` · ${skipped} omitidas`;
+      if (groupsCreated) msg += ` · ${groupsCreated} grupo(s) creado(s)`;
+      if (groupErrors.length) msg += ` · ${groupErrors.length} grupo(s) con error`;
+      if (errors.length) {
+        const sample = errors.slice(0, 3).map((e) => `${e.name}: ${e.reason}`).join(' | ');
+        msg += `. Ejemplos: ${sample}`;
+      }
+      return { msg, hasErrors: errors.length > 0 || groupErrors.length > 0 };
     }
 
     async function onPropertiesFileSelected(e) {
@@ -585,12 +641,14 @@
       const name = (file.name || '').toLowerCase();
       if (!name.endsWith('.xlsx') && !name.endsWith('.csv')) {
         setPropsStatus('Formato no soportado. Usa un fichero .xlsx o .csv.', true);
+        scrollToPropsStatus();
         return;
       }
 
-      const hsObjectType = document.getElementById('hsObjectSelect').value;
+      const hsObjectType = resolveClientObjectType(document.getElementById('hsObjectSelect').value);
       if (!hsObjectType) {
         setPropsStatus('Selecciona primero el objeto de HubSpot.', true);
+        scrollToPropsStatus();
         return;
       }
 
@@ -741,33 +799,42 @@
     }
 
     async function createSelectedProperties() {
-      const hsObjectType = document.getElementById('hsObjectSelect').value;
+      const hsObjectType = resolveClientObjectType(document.getElementById('hsObjectSelect').value);
       if (!hsObjectType) {
         setPropsStatus('Selecciona el objeto de HubSpot.', true);
+        scrollToPropsStatus();
         return;
       }
-      const selected = [...document.querySelectorAll('.prop-check:checked')].map((i) => i.value).filter(Boolean);
-      if (!selected.length) {
-        setPropsStatus('Selecciona al menos una propiedad marcada como "A crear".', true);
-        return;
-      }
-      if (!confirm(`¿Crear ${selected.length} propiedades en HubSpot (${hsObjectType})?`)) return;
-      try {
-        setPropsStatus('Creando propiedades en HubSpot…');
-        const res = await API.createProperties(projectId, hsObjectType, selected);
-        const created = res.results.filter((r) => r.status === 'created').length;
-        const exists = res.results.filter((r) => r.status === 'exists').length;
-        const errors = res.results.filter((r) => r.status === 'error').length;
-        const groupsCreated = (res.groupResults?.created || []).length;
-        const groupMsg = groupsCreated
-          ? ` · ${groupsCreated} grupo(s) de propiedades creado(s)`
-          : '';
-        setPropsStatus(`Completado: ${created} creadas · ${exists} ya existían · ${errors} con error${groupMsg}`, errors > 0);
 
-        // Recargar importación del proyecto (para reflejar "exists" en UI) sin endpoint dedicado:
+      let selected = [...document.querySelectorAll('.prop-check:checked')].map((i) => i.value).filter(Boolean);
+      if (!selected.length) {
+        selected = getCreatablePropertyNames();
+      }
+      if (!selected.length) {
+        setPropsStatus('No hay propiedades pendientes de crear. Revisa el Excel: las filas con error o las que ya existen en HubSpot no se pueden crear.', true);
+        scrollToPropsStatus();
+        return;
+      }
+
+      if (!confirm(`¿Crear ${selected.length} propiedades en HubSpot (${hsObjectType})?`)) return;
+
+      const btn = document.getElementById('createPropertiesBtn');
+      btn.disabled = true;
+      try {
+        setPropsStatus(`Creando ${selected.length} propiedades en HubSpot…`);
+        scrollToPropsStatus();
+        const res = await API.createProperties(projectId, hsObjectType, selected);
+        const summary = formatCreateResultsSummary(res);
+        setPropsStatus(summary.msg, summary.hasErrors);
         await loadProject();
+        await loadLogs();
+        scrollToPropsStatus();
       } catch (err) {
         setPropsStatus(err.message, true);
+        scrollToPropsStatus();
+        await loadLogs();
+      } finally {
+        btn.disabled = false;
       }
     }
 
