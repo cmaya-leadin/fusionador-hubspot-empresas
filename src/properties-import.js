@@ -100,7 +100,7 @@ export function mapExcelTypeToHubSpot(rawType) {
   if (t.includes('texto') || t === 'text' || t === 'string') {
     return { type: 'string', fieldType: 'text' };
   }
-  if (t.includes('multilinea') || t.includes('multilínea') || t.includes('textarea')) {
+  if (t.includes('multilinea') || t.includes('multilínea') || t.includes('textarea') || t.includes('varias líneas') || t.includes('varias lineas')) {
     return { type: 'string', fieldType: 'textarea' };
   }
   if (t.includes('numero') || t.includes('número') || t === 'number') {
@@ -112,7 +112,28 @@ export function mapExcelTypeToHubSpot(rawType) {
   if (t.includes('datetime') || t.includes('fecha y hora')) {
     return { type: 'datetime', fieldType: 'date' };
   }
-  if (t.includes('boolean') || t.includes('si/no') || t.includes('sí/no') || t.includes('casilla') || t.includes('comprobación') || t.includes('comprobacion')) {
+  // Multiselección: varias casillas con opciones (HubSpot: enumeration + checkbox).
+  if (
+    t.includes('múltiples casillas')
+    || t.includes('multiples casillas')
+    || (t.includes('multiple') && t.includes('casilla'))
+    || t.includes('selección múltiple')
+    || t.includes('seleccion multiple')
+    || t.includes('multi select')
+  ) {
+    return { type: 'enumeration', fieldType: 'checkbox' };
+  }
+  // Casilla individual sí/no.
+  if (
+    t.includes('boolean')
+    || t.includes('si/no')
+    || t.includes('sí/no')
+    || t.includes('casilla de comprobación individual')
+    || t.includes('casilla de comprobacion individual')
+    || (t.includes('casilla') && t.includes('individual'))
+    || (t.includes('comprobación') && !t.includes('múltiples') && !t.includes('multiples'))
+    || (t.includes('comprobacion') && !t.includes('multiples'))
+  ) {
     return { type: 'bool', fieldType: 'booleancheckbox' };
   }
   if (t.includes('enumer') || t.includes('seleccion') || t.includes('selección') || t.includes('dropdown') || t.includes('desplegable') || t.includes('lista')) {
@@ -120,6 +141,14 @@ export function mapExcelTypeToHubSpot(rawType) {
   }
 
   return null;
+}
+
+/**
+ * @param {string} rawType
+ */
+export function excelTypeHasOptions(rawType) {
+  const mapped = mapExcelTypeToHubSpot(rawType);
+  return mapped?.type === 'enumeration';
 }
 
 /**

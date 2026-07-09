@@ -676,10 +676,13 @@
     }
 
     function propTypeHasOptions(type) {
-      const t = String(type || '').toLowerCase();
-      return t.includes('enumer')
+      const t = String(type || '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+      return t.includes('multiples casillas')
+        || (t.includes('multiple') && t.includes('casilla'))
+        || t.includes('seleccion multiple')
+        || t.includes('multi select')
+        || t.includes('enumer')
         || t.includes('seleccion')
-        || t.includes('selección')
         || t.includes('dropdown')
         || t.includes('desplegable')
         || t.includes('lista');
