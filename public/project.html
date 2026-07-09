@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/favicon.png">
   <title>Proyecto - HubSpot Fusionador</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
@@ -13,6 +15,7 @@
     </div>
     <div class="header-top">
       <h1 id="projectTitle">…</h1>
+      <span class="badge badge-info hidden" id="projectTypeBadge" style="margin-left:12px;vertical-align:middle"></span>
       <div class="header-actions">
         <a href="/guide.html" class="btn btn-primary btn-sm">Guía de Uso</a>
         <button class="btn btn-outline" onclick="logout()">Cerrar Sesión</button>
@@ -27,6 +30,7 @@
     <button class="btn btn-primary btn-sm" id="simulateBtn">Simular Fusión</button>
     <button class="btn btn-orange btn-sm" id="applyBtn">Aplicar Fusión</button>
     <button class="btn btn-outline btn-sm" id="retryFailedBtn" title="Reintenta solo las fusiones fallidas de la última ejecución">↻ Reintentar fallos</button>
+    <button class="btn btn-orange btn-sm hidden" id="createPropertiesBtn">Crear propiedades</button>
     <button class="btn btn-danger btn-sm" id="deleteProjectBtn">Eliminar Proyecto</button>
   </div>
 
@@ -122,6 +126,72 @@
       </div>
     </div>
 
+    <div class="panel hidden" id="propertiesPanel">
+      <div class="panel-header">
+        <h2>Creación de propiedades</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-secondary btn-sm" id="loadSchemasBtn">Cargar objetos</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="form-row" style="margin-bottom:16px">
+          <div class="form-group">
+            <label>Objeto de HubSpot</label>
+            <select id="hsObjectSelect"></select>
+            <small style="color:#6b7280">Se carga desde HubSpot (schemas). Selecciona el objeto donde crear las propiedades.</small>
+          </div>
+          <div class="form-group">
+            <label>Subir plantilla (Excel/CSV)</label>
+            <div class="file-upload" id="propertiesFileUpload">
+              <input type="file" id="propertiesFile" class="file-upload-input" accept=".xlsx,.csv">
+              <div class="file-upload-body">
+                <div class="file-upload-icon" aria-hidden="true">📄</div>
+                <div class="file-upload-copy">
+                  <span class="file-upload-title" id="propertiesFileLabel">Arrastra tu Excel o CSV aquí</span>
+                  <span class="file-upload-hint">.xlsx o .csv · Plantilla con OBJETO, Etiqueta, Tipo, Nombre interno, Opciones y Grupo</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="propertiesFileBtn">Examinar</button>
+              </div>
+            </div>
+            <p class="file-upload-meta hidden" id="propertiesFileMeta"></p>
+          </div>
+        </div>
+
+        <div class="filter-bar" style="margin-top:0">
+          <label>Filtro:</label>
+          <input type="text" id="propFilterText" placeholder="Buscar por label / nombre interno / grupo…">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280">
+            <input type="checkbox" id="propHideExisting" checked> Ocultar existentes
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280">
+            <input type="checkbox" id="propOnlyErrors"> Solo con errores
+          </label>
+          <span id="propCounts" style="font-size:13px;color:#6b7280"></span>
+        </div>
+
+        <div class="table-wrap" style="margin-top:12px">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:34px"><input type="checkbox" id="propSelectAll"></th>
+                <th>Nombre interno</th>
+                <th>Etiqueta</th>
+                <th>Tipo</th>
+                <th>Grupo</th>
+                <th>Valores</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="propsTable">
+              <tr><td colspan="7" class="loading">Sube un fichero para ver las propiedades.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div id="propsStatus" class="criteria-status" style="margin-top:14px"></div>
+      </div>
+    </div>
+
     <div class="stats-row" id="statsRow">
       <div class="stat-card">
         <div class="value" id="statGroups">-</div>
@@ -140,7 +210,7 @@
       </div>
     </div>
 
-    <div class="panel">
+    <div class="panel" id="mergeGroupsPanel">
       <div class="filter-bar">
         <label>Filtro:</label>
         <input type="text" id="filterDominio" placeholder="Dominio o email…">
@@ -245,6 +315,33 @@
     </div>
   </div>
 
+  <!-- Opciones de propiedad (listas desplegables) -->
+  <div class="modal-overlay hidden" id="propOptionsModal">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h2 id="propOptionsTitle">Valores de la propiedad</h2>
+        <button type="button" class="modal-close" onclick="closePropOptionsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="propOptionsMeta" style="margin:0 0 12px;font-size:13px;color:#6b7280"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Etiqueta</th>
+                <th>Valor interno</th>
+              </tr>
+            </thead>
+            <tbody id="propOptionsTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closePropOptionsModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/api.js"></script>
   <script src="/js/merge-progress-ui.js"></script>
   <script src="/js/criteria-ui.js"></script>
@@ -263,23 +360,131 @@
       await requireAuth();
       await loadProject();
       setupTabs();
-      setupCriteriaEditor(project, projectId, loadLogs);
+      if (project?.projectType !== 'properties') {
+        setupCriteriaEditor(project, projectId, loadLogs);
+      }
       setupEvents();
       await refreshFailedMergesButton();
       await loadLogs();
       logsInterval = setInterval(loadLogs, 10000);
-      await reconnectActiveMergeJob();
+      if (project?.projectType !== 'properties') {
+        await reconnectActiveMergeJob();
+      }
     }
 
     async function loadProject() {
       const { project: p } = await API.getProject(projectId);
       project = p;
       document.getElementById('projectTitle').textContent = p.name || 'Proyecto sin nombre';
+      const typeBadge = document.getElementById('projectTypeBadge');
+      if (p.projectType === 'properties') {
+        typeBadge.classList.add('hidden');
+      } else {
+        typeBadge.textContent = 'Fusión';
+        typeBadge.classList.remove('hidden');
+      }
       document.getElementById('breadcrumbName').textContent = p.name || 'Proyecto';
       document.getElementById('statEntity').textContent = entityLabel(p.entityType);
       document.getElementById('statAccount').textContent = p.hubspotAccount || 'Sin cuenta';
       document.title = `${p.name || 'Proyecto'} - HubSpot Fusionador`;
-      loadCriteriaForm(p.mergeCriteria, p.entityType);
+
+      if (p.projectType === 'properties') {
+        importedProps = p.propertiesImport || null;
+        enablePropertiesMode();
+      } else {
+        enableMergeMode();
+        loadCriteriaForm(p.mergeCriteria, p.entityType);
+      }
+    }
+
+    function enableMergeMode() {
+      document.getElementById('criteriaBtn').classList.remove('hidden');
+      document.getElementById('simulateBtn').classList.remove('hidden');
+      document.getElementById('applyBtn').classList.remove('hidden');
+      document.getElementById('retryFailedBtn').classList.remove('hidden');
+      document.getElementById('createPropertiesBtn').classList.add('hidden');
+      document.getElementById('criteriaPanel').classList.remove('hidden');
+      document.getElementById('statsRow').classList.remove('hidden');
+      document.getElementById('mergeGroupsPanel').classList.remove('hidden');
+      document.getElementById('propertiesPanel').classList.add('hidden');
+      document.getElementById('mergeJobBanner').classList.remove('hidden'); // puede ocultarse si no hay job
+    }
+
+    function enablePropertiesMode() {
+      document.getElementById('criteriaBtn').classList.add('hidden');
+      document.getElementById('simulateBtn').classList.add('hidden');
+      document.getElementById('applyBtn').classList.add('hidden');
+      document.getElementById('retryFailedBtn').classList.add('hidden');
+      document.getElementById('criteriaPanel').classList.add('hidden');
+      document.getElementById('statsRow').classList.add('hidden');
+      document.getElementById('mergeGroupsPanel').classList.add('hidden');
+      document.getElementById('mergeProgressPanel').classList.add('hidden');
+      document.getElementById('mergeJobBanner').classList.add('hidden');
+      document.getElementById('propertiesPanel').classList.remove('hidden');
+      document.getElementById('createPropertiesBtn').classList.remove('hidden');
+
+      // precargar selección si ya existe
+      if (project?.hsObjectType) {
+        const sel = document.getElementById('hsObjectSelect');
+        if (sel) sel.value = project.hsObjectType;
+      }
+
+      // si hay import previa, renderizar
+      const imp = importedProps || project?.propertiesImport;
+      if (imp?.rows?.length) {
+        renderImportedProps(imp);
+        updatePropertiesFileMeta(imp);
+      }
+      loadSchemas();
+    }
+
+    function setupPropertiesFileDropzone() {
+      const zone = document.getElementById('propertiesFileUpload');
+      if (!zone) return;
+
+      zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+      });
+      zone.addEventListener('dragleave', (e) => {
+        if (!zone.contains(e.relatedTarget)) zone.classList.remove('dragover');
+      });
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        const file = e.dataTransfer?.files?.[0];
+        if (file) processPropertiesFile(file);
+      });
+      zone.addEventListener('click', (e) => {
+        if (e.target.closest('#propertiesFileBtn')) return;
+        document.getElementById('propertiesFile')?.click();
+      });
+    }
+
+    function updatePropertiesFileMeta(imp) {
+      const meta = document.getElementById('propertiesFileMeta');
+      const label = document.getElementById('propertiesFileLabel');
+      if (!meta || !label) return;
+
+      if (imp?.fileName) {
+        const when = imp.importedAt
+          ? new Date(imp.importedAt).toLocaleString('es-ES')
+          : '';
+        meta.textContent = `Última importación: ${imp.fileName} · ${imp.rows?.length || 0} filas${when ? ` · ${when}` : ''}`;
+        meta.classList.remove('hidden');
+        label.textContent = imp.fileName;
+      } else {
+        meta.textContent = '';
+        meta.classList.add('hidden');
+        label.textContent = 'Arrastra tu Excel o CSV aquí';
+      }
+    }
+
+    function resetPropsListUiAfterImport() {
+      document.getElementById('propSelectAll').checked = false;
+      document.getElementById('propFilterText').value = '';
+      document.getElementById('propOnlyErrors').checked = false;
+      document.getElementById('propHideExisting').checked = false;
     }
 
     function setupTabs() {
@@ -301,6 +506,20 @@
       document.getElementById('simulateBtn').onclick = runSimulate;
       document.getElementById('applyBtn').onclick = runApply;
       document.getElementById('retryFailedBtn').onclick = runRetryFailed;
+      document.getElementById('createPropertiesBtn').onclick = createSelectedProperties;
+      document.getElementById('loadSchemasBtn').onclick = loadSchemas;
+      document.getElementById('propertiesFile').onchange = onPropertiesFileSelected;
+      document.getElementById('propertiesFileBtn').onclick = () => document.getElementById('propertiesFile').click();
+      setupPropertiesFileDropzone();
+      document.getElementById('propFilterText').oninput = applyPropsFilter;
+      document.getElementById('propHideExisting').onchange = applyPropsFilter;
+      document.getElementById('propOnlyErrors').onchange = applyPropsFilter;
+      document.getElementById('propSelectAll').onchange = toggleSelectAllProps;
+      document.getElementById('propsTable').addEventListener('click', (e) => {
+        const btn = e.target.closest('.prop-options-btn');
+        if (!btn) return;
+        openPropOptionsModal(btn.dataset.name);
+      });
       document.getElementById('refreshLogsBtn').onclick = loadLogs;
       document.getElementById('deleteProjectBtn').onclick = deleteProject;
       document.getElementById('mergeJobBannerScroll').onclick = () => {
@@ -309,6 +528,247 @@
       document.getElementById('cfgEntity').onchange = (e) => {
         updateMatchPresets(e.target.value);
       };
+    }
+
+    // -------------------------
+    // Properties project UI
+    // -------------------------
+    let importedProps = null;
+
+    function setPropsStatus(message, isError = false) {
+      const el = document.getElementById('propsStatus');
+      if (!el) return;
+      el.textContent = message || '';
+      el.className = isError ? 'criteria-status error-msg' : 'criteria-status';
+      if (!message) return;
+      if (!isError) {
+        el.style.color = '#166534';
+        el.style.background = '#dcfce7';
+        el.style.padding = '8px 12px';
+        el.style.borderRadius = '8px';
+      } else {
+        el.style.color = '#991b1b';
+        el.style.background = '#fee2e2';
+        el.style.padding = '8px 12px';
+        el.style.borderRadius = '8px';
+      }
+    }
+
+    function schemaLabel(schema) {
+      return schema?.labels?.singular || schema?.name || schema?.objectTypeId || 'Objeto';
+    }
+
+    async function loadSchemas() {
+      try {
+        setPropsStatus('Cargando objetos desde HubSpot…');
+        const { schemas } = await API.getSchemas(projectId);
+        const select = document.getElementById('hsObjectSelect');
+        select.innerHTML = '<option value="">Selecciona…</option>' +
+          (schemas || []).map((s) => `<option value="${escapeHtml(s.objectTypeId)}">${escapeHtml(schemaLabel(s))} (${escapeHtml(s.objectTypeId)})</option>`).join('');
+        if (project?.hsObjectType) select.value = project.hsObjectType;
+        setPropsStatus('Objetos cargados.');
+      } catch (err) {
+        setPropsStatus(err.message, true);
+      }
+    }
+
+    async function onPropertiesFileSelected(e) {
+      const file = e.target.files?.[0];
+      try {
+        if (file) await processPropertiesFile(file);
+      } finally {
+        e.target.value = '';
+      }
+    }
+
+    async function processPropertiesFile(file) {
+      const name = (file.name || '').toLowerCase();
+      if (!name.endsWith('.xlsx') && !name.endsWith('.csv')) {
+        setPropsStatus('Formato no soportado. Usa un fichero .xlsx o .csv.', true);
+        return;
+      }
+
+      const hsObjectType = document.getElementById('hsObjectSelect').value;
+      if (!hsObjectType) {
+        setPropsStatus('Selecciona primero el objeto de HubSpot.', true);
+        return;
+      }
+
+      try {
+        setPropsStatus('Importando fichero…');
+        const { import: imp } = await API.importPropertiesFile(projectId, hsObjectType, file);
+        importedProps = imp;
+        project.hsObjectType = hsObjectType;
+        project.propertiesImport = imp;
+        resetPropsListUiAfterImport();
+        renderImportedProps(imp);
+        updatePropertiesFileMeta(imp);
+        setPropsStatus(`Importado: ${imp.fileName} (${imp.rows?.length || 0} filas)`);
+      } catch (err) {
+        setPropsStatus(err.message, true);
+      }
+    }
+
+    function computePropCounts(rows) {
+      const total = rows.length;
+      const existing = rows.filter((r) => r.exists).length;
+      const invalid = rows.filter((r) => r.valid === false).length;
+      const toCreate = rows.filter((r) => !r.exists && r.valid !== false).length;
+      return { total, existing, invalid, toCreate };
+    }
+
+    function propTypeHasOptions(type) {
+      const t = String(type || '').toLowerCase();
+      return t.includes('enumer')
+        || t.includes('seleccion')
+        || t.includes('selección')
+        || t.includes('dropdown')
+        || t.includes('desplegable')
+        || t.includes('lista');
+    }
+
+    function parseOptionsClient(raw) {
+      const text = String(raw || '').trim();
+      if (!text) return [];
+      const parts = text.includes('|')
+        ? text.split(/\s*\|\s*/g).map((s) => s.trim()).filter(Boolean)
+        : text.split(/[\n;]+/g).map((s) => s.trim()).filter(Boolean);
+      return parts.map((label) => ({ label, value: label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') }));
+    }
+
+    function getPropOptions(row) {
+      if (Array.isArray(row?.options) && row.options.length) return row.options;
+      if (row?.optionsRaw && propTypeHasOptions(row.type)) return parseOptionsClient(row.optionsRaw);
+      return [];
+    }
+
+    function openPropOptionsModal(propertyName) {
+      const imp = importedProps || project?.propertiesImport;
+      const rows = Array.isArray(imp?.rows) ? imp.rows : [];
+      const row = rows.find((r) => r.name === propertyName);
+      if (!row) return;
+      const options = getPropOptions(row);
+      if (!options.length) return;
+
+      document.getElementById('propOptionsTitle').textContent = row.label || row.name || 'Valores de la propiedad';
+      document.getElementById('propOptionsMeta').textContent =
+        `${row.name || ''} · ${row.type || ''} · ${options.length} opción${options.length === 1 ? '' : 'es'}`;
+      document.getElementById('propOptionsTable').innerHTML = options.map((opt) => `
+        <tr>
+          <td>${escapeHtml(opt.label || '')}</td>
+          <td><code>${escapeHtml(opt.value || '')}</code></td>
+        </tr>
+      `).join('');
+      document.getElementById('propOptionsModal').classList.remove('hidden');
+    }
+
+    function closePropOptionsModal() {
+      document.getElementById('propOptionsModal').classList.add('hidden');
+    }
+
+    function renderImportedProps(imp) {
+      importedProps = imp;
+      const rows = Array.isArray(imp?.rows) ? imp.rows : [];
+      const tbody = document.getElementById('propsTable');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="loading">No hay filas en el fichero.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map((r) => {
+        const status = r.exists
+          ? 'Existente (no se crea)'
+          : r.valid === false
+            ? `Error: ${escapeHtml(r.error || 'Fila inválida')}`
+            : 'A crear';
+        const statusCls = r.exists ? 'badge badge-neutral' : r.valid === false ? 'badge badge-error' : 'badge badge-success';
+        const disabled = r.exists || r.valid === false ? 'disabled' : '';
+        const options = getPropOptions(r);
+        const valuesCell = options.length
+          ? `<button type="button" class="btn btn-outline btn-sm prop-options-btn" data-name="${escapeHtml(r.name || '')}">Ver (${options.length})</button>`
+          : '<span style="color:#9ca3af">—</span>';
+        return `
+          <tr data-prop-row="1"
+              data-name="${escapeHtml(r.name || '')}"
+              data-label="${escapeHtml(r.label || '')}"
+              data-group="${escapeHtml(r.group || '')}"
+              data-type="${escapeHtml(r.type || '')}"
+              data-exists="${r.exists ? '1' : '0'}"
+              data-valid="${r.valid === false ? '0' : '1'}">
+            <td><input type="checkbox" class="prop-check" value="${escapeHtml(r.name || '')}" ${disabled}></td>
+            <td><code>${escapeHtml(r.name || '')}</code></td>
+            <td>${escapeHtml(r.label || '')}</td>
+            <td>${escapeHtml(r.type || '')}</td>
+            <td>${escapeHtml(r.group || '')}</td>
+            <td>${valuesCell}</td>
+            <td><span class="${statusCls}">${status}</span></td>
+          </tr>
+        `;
+      }).join('');
+      applyPropsFilter();
+    }
+
+    function applyPropsFilter() {
+      const text = (document.getElementById('propFilterText').value || '').trim().toLowerCase();
+      const hideExisting = document.getElementById('propHideExisting').checked;
+      const onlyErrors = document.getElementById('propOnlyErrors').checked;
+      const rows = [...document.querySelectorAll('#propsTable tr[data-prop-row="1"]')];
+      let shown = 0;
+      for (const tr of rows) {
+        const exists = tr.dataset.exists === '1';
+        const valid = tr.dataset.valid === '1';
+        const hay = `${tr.dataset.name} ${tr.dataset.label} ${tr.dataset.group} ${tr.dataset.type}`.toLowerCase();
+        let ok = true;
+        if (hideExisting && exists) ok = false;
+        if (onlyErrors && valid) ok = false;
+        if (text && !hay.includes(text)) ok = false;
+        tr.style.display = ok ? '' : 'none';
+        if (ok) shown += 1;
+      }
+      const imp = importedProps || project?.propertiesImport;
+      const counts = computePropCounts(Array.isArray(imp?.rows) ? imp.rows : []);
+      document.getElementById('propCounts').textContent =
+        `Mostrando ${shown} · Total ${counts.total} · A crear ${counts.toCreate} · Existentes ${counts.existing} · Con error ${counts.invalid}`;
+    }
+
+    function toggleSelectAllProps(e) {
+      const checked = e.target.checked;
+      document.querySelectorAll('#propsTable tr[data-prop-row="1"]').forEach((tr) => {
+        if (tr.style.display === 'none') return;
+        const input = tr.querySelector('.prop-check');
+        if (!input || input.disabled) return;
+        input.checked = checked;
+      });
+    }
+
+    async function createSelectedProperties() {
+      const hsObjectType = document.getElementById('hsObjectSelect').value;
+      if (!hsObjectType) {
+        setPropsStatus('Selecciona el objeto de HubSpot.', true);
+        return;
+      }
+      const selected = [...document.querySelectorAll('.prop-check:checked')].map((i) => i.value).filter(Boolean);
+      if (!selected.length) {
+        setPropsStatus('Selecciona al menos una propiedad marcada como "A crear".', true);
+        return;
+      }
+      if (!confirm(`¿Crear ${selected.length} propiedades en HubSpot (${hsObjectType})?`)) return;
+      try {
+        setPropsStatus('Creando propiedades en HubSpot…');
+        const res = await API.createProperties(projectId, hsObjectType, selected);
+        const created = res.results.filter((r) => r.status === 'created').length;
+        const exists = res.results.filter((r) => r.status === 'exists').length;
+        const errors = res.results.filter((r) => r.status === 'error').length;
+        const groupsCreated = (res.groupResults?.created || []).length;
+        const groupMsg = groupsCreated
+          ? ` · ${groupsCreated} grupo(s) de propiedades creado(s)`
+          : '';
+        setPropsStatus(`Completado: ${created} creadas · ${exists} ya existían · ${errors} con error${groupMsg}`, errors > 0);
+
+        // Recargar importación del proyecto (para reflejar "exists" en UI) sin endpoint dedicado:
+        await loadProject();
+      } catch (err) {
+        setPropsStatus(err.message, true);
+      }
     }
 
     async function deleteProject() {

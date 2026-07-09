@@ -59,6 +59,36 @@ const API = {
     return this.request(`/projects/${id}`, { method: 'DELETE' });
   },
 
+  getSchemas(projectId) {
+    return this.request(`/properties/${projectId}/schemas`);
+  },
+
+  async importPropertiesFile(projectId, hsObjectType, file) {
+    const form = new FormData();
+    form.append('hsObjectType', hsObjectType);
+    form.append('file', file);
+
+    const res = await fetch(`/api/properties/${projectId}/import`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 401) window.location.href = '/';
+      throw new Error(data.error || `Error ${res.status}`);
+    }
+    return data;
+  },
+
+  createProperties(projectId, hsObjectType, names) {
+    return this.request(`/properties/${projectId}/create`, {
+      method: 'POST',
+      body: JSON.stringify({ hsObjectType, names }),
+    });
+  },
+
   testConnection(projectId) {
     return this.request(`/merge/${projectId}/test-connection`, {
       method: 'POST',

@@ -7,6 +7,7 @@ import './db.js';
 import authRoutes from './routes/auth.js';
 import projectRoutes from './routes/projects.js';
 import mergeRoutes from './routes/merge.js';
+import propertiesRoutes from './routes/properties.js';
 import adminRoutes from './routes/admin.js';
 import logRoutes from './routes/logs.js';
 
@@ -60,6 +61,7 @@ app.use(
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/merge', mergeRoutes);
+app.use('/api/properties', propertiesRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/logs', logRoutes);
 

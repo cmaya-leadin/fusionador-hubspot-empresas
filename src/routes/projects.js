@@ -22,8 +22,17 @@ function sanitizeProject(project) {
     name: project.name,
     hubspotAccount: project.hubspot_account,
     hasToken: Boolean(project.hubspot_token_enc),
+    projectType: project.project_type || 'merge',
     entityType: project.entity_type,
     mergeCriteria: parseMergeCriteria(project.merge_criteria, project.entity_type),
+    hsObjectType: project.hs_object_type || '',
+    propertiesImport: (() => {
+      try {
+        return JSON.parse(project.properties_import || '{}');
+      } catch {
+        return {};
+      }
+    })(),
     ownerUsername: project.owner_username,
     createdAt: project.created_at,
     updatedAt: project.updated_at,
@@ -39,20 +48,25 @@ router.get('/', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, hubspotAccount, hubspotToken, entityType, mergeCriteria } =
+  const { name, hubspotAccount, hubspotToken, entityType, mergeCriteria, projectType } =
     req.body || {};
 
   if (!name?.trim()) {
     return res.status(400).json({ error: 'Nombre del proyecto requerido' });
   }
+  const normalizedType = projectType === 'properties' ? 'properties' : 'merge';
 
   const project = createProject({
     userId: req.session.userId,
     name: name.trim(),
     hubspotAccount: hubspotAccount?.trim() || '',
     hubspotTokenEnc: hubspotToken ? encryptToken(hubspotToken.trim()) : '',
+    projectType: normalizedType,
     entityType: entityType || 'companies',
-    mergeCriteria: parseMergeCriteria(mergeCriteria || {}, entityType || 'companies'),
+    mergeCriteria:
+      normalizedType === 'merge'
+        ? parseMergeCriteria(mergeCriteria || {}, entityType || 'companies')
+        : {},
   });
 
   addLog({
@@ -81,7 +95,7 @@ router.put('/:id', (req, res) => {
     return res.status(404).json({ error: 'Proyecto no encontrado' });
   }
 
-  const { name, hubspotAccount, hubspotToken, entityType, mergeCriteria } =
+  const { name, hubspotAccount, hubspotToken, entityType, mergeCriteria, projectType, hsObjectType } =
     req.body || {};
 
   const updates = {};
@@ -90,8 +104,16 @@ router.put('/:id', (req, res) => {
   if (hubspotToken?.trim()) {
     updates.hubspotTokenEnc = encryptToken(hubspotToken.trim());
   }
+  if (projectType != null) {
+    updates.projectType = projectType === 'properties' ? 'properties' : 'merge';
+  }
   if (entityType != null) updates.entityType = entityType;
+  if (hsObjectType != null) updates.hsObjectType = String(hsObjectType || '');
   if (mergeCriteria != null) {
+    const effectiveType = updates.projectType || existing.project_type || 'merge';
+    if (effectiveType !== 'merge') {
+      return res.status(400).json({ error: 'mergeCriteria solo aplica a proyectos de fusión' });
+    }
     const entity = entityType || existing.entity_type;
     const parsed = parseMergeCriteria(mergeCriteria, entity);
     if (!parsed.matchRules?.length) {

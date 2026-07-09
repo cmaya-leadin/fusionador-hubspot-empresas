@@ -164,6 +164,47 @@ export function createHubSpotClient(token) {
       return { ok: true };
     },
 
+    async listSchemas() {
+      return request('/crm/v3/schemas');
+    },
+
+    /**
+     * @param {string} objectType
+     */
+    async listProperties(objectType) {
+      // HubSpot v3 properties endpoint. En la práctica suele devolver todo sin paginación.
+      return request(`/crm/v3/properties/${encodeURIComponent(objectType)}`);
+    },
+
+    /**
+     * @param {string} objectType
+     */
+    async listPropertyGroups(objectType) {
+      return request(`/crm/v3/properties/${encodeURIComponent(objectType)}/groups`);
+    },
+
+    /**
+     * @param {string} objectType
+     * @param {{ name: string, label: string, displayOrder?: number }} payload
+     */
+    async createPropertyGroup(objectType, payload) {
+      return request(`/crm/v3/properties/${encodeURIComponent(objectType)}/groups`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
+    /**
+     * @param {string} objectType
+     * @param {Record<string, unknown>} payload
+     */
+    async createProperty(objectType, payload) {
+      return request(`/crm/v3/properties/${encodeURIComponent(objectType)}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    },
+
     async fetchAllCompanies(properties = MERGE_COMPANY_PROPERTIES, onPage) {
       return fetchAllObjects('companies', properties, onPage);
     },

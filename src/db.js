@@ -31,8 +31,11 @@ db.exec(`
     name TEXT NOT NULL,
     hubspot_account TEXT NOT NULL DEFAULT '',
     hubspot_token_enc TEXT NOT NULL DEFAULT '',
+    project_type TEXT NOT NULL DEFAULT 'merge' CHECK(project_type IN ('merge', 'properties')),
     entity_type TEXT NOT NULL DEFAULT 'companies' CHECK(entity_type IN ('companies', 'contacts')),
     merge_criteria TEXT NOT NULL DEFAULT '{}',
+    hs_object_type TEXT NOT NULL DEFAULT '',
+    properties_import TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -60,6 +63,22 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// Migrations ligeras para instalaciones existentes (SQLite sin migrador).
+function ensureColumn(table, column, sqlTypeAndDefault) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  const has = cols.some((c) => c.name === column);
+  if (has) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlTypeAndDefault}`);
+}
+
+ensureColumn(
+  'projects',
+  'project_type',
+  "TEXT NOT NULL DEFAULT 'merge' CHECK(project_type IN ('merge','properties'))",
+);
+ensureColumn('projects', 'hs_object_type', "TEXT NOT NULL DEFAULT ''");
+ensureColumn('projects', 'properties_import', "TEXT NOT NULL DEFAULT '{}'");
 
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get();
 if (userCount.c === 0) {
@@ -154,18 +173,33 @@ export function getProjectById(id) {
 export function createProject(data) {
   const result = db
     .prepare(`
-      INSERT INTO projects (user_id, name, hubspot_account, hubspot_token_enc, entity_type, merge_criteria)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO projects (
+        user_id,
+        name,
+        hubspot_account,
+        hubspot_token_enc,
+        project_type,
+        entity_type,
+        merge_criteria,
+        hs_object_type,
+        properties_import
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       data.userId,
       data.name,
       data.hubspotAccount || '',
       data.hubspotTokenEnc || '',
+      data.projectType || 'merge',
       data.entityType || 'companies',
       typeof data.mergeCriteria === 'string'
         ? data.mergeCriteria
         : JSON.stringify(data.mergeCriteria || {}),
+      data.hsObjectType || '',
+      typeof data.propertiesImport === 'string'
+        ? data.propertiesImport
+        : JSON.stringify(data.propertiesImport || {}),
     );
   return getProjectById(result.lastInsertRowid);
 }
@@ -186,6 +220,10 @@ export function   updateProject(id, data) {
     fields.push('hubspot_token_enc = ?');
     values.push(data.hubspotTokenEnc);
   }
+  if (data.projectType != null) {
+    fields.push('project_type = ?');
+    values.push(data.projectType);
+  }
   if (data.entityType != null) {
     fields.push('entity_type = ?');
     values.push(data.entityType);
@@ -196,6 +234,18 @@ export function   updateProject(id, data) {
       typeof data.mergeCriteria === 'string'
         ? data.mergeCriteria
         : JSON.stringify(data.mergeCriteria),
+    );
+  }
+  if (data.hsObjectType != null) {
+    fields.push('hs_object_type = ?');
+    values.push(data.hsObjectType);
+  }
+  if (data.propertiesImport != null) {
+    fields.push('properties_import = ?');
+    values.push(
+      typeof data.propertiesImport === 'string'
+        ? data.propertiesImport
+        : JSON.stringify(data.propertiesImport),
     );
   }
 

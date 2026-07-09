@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/favicon.png">
   <title>Tus Proyectos - HubSpot Fusionador</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
@@ -37,6 +39,13 @@
       </div>
       <div class="modal-body">
         <form id="projectForm">
+          <div class="form-group">
+            <label for="projectType">Tipo de Proyecto</label>
+            <select id="projectType">
+              <option value="merge">Fusión</option>
+              <option value="properties">Creación de propiedades</option>
+            </select>
+          </div>
           <div class="form-group">
             <label for="projectName">Nombre del Proyecto</label>
             <input type="text" id="projectName" required>
@@ -105,6 +114,7 @@
           <div class="project-card" data-project-id="${p.id}">
             <h3>${escapeHtml(p.name) || '(sin nombre)'}</h3>
             <p class="meta">${escapeHtml(p.hubspotAccount || 'Sin cuenta')}</p>
+            <p class="meta">Tipo: ${p.projectType === 'properties' ? 'Creación de propiedades' : 'Fusión'}</p>
             <p class="meta">Entidad: ${entityLabel(p.entityType)}</p>
             ${currentUser.role === 'admin' ? `<p class="meta">Usuario: ${escapeHtml(p.ownerUsername)}</p>` : ''}
             <div class="card-footer" style="display:flex;justify-content:space-between;align-items:center">
@@ -139,6 +149,7 @@
     }
 
     async function saveProject() {
+      const projectType = document.getElementById('projectType').value;
       const name = document.getElementById('projectName').value.trim();
       const hubspotAccount = document.getElementById('hubspotAccount').value.trim();
       const hubspotToken = document.getElementById('hubspotToken').value.trim();
@@ -149,7 +160,7 @@
 
       try {
         const { project } = await API.createProject({
-          name, hubspotAccount, hubspotToken, entityType,
+          name, hubspotAccount, hubspotToken, entityType, projectType,
         });
         closeModal();
         window.location.href = `/project.html?id=${project.id}`;
