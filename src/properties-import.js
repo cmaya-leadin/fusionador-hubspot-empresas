@@ -297,15 +297,17 @@ export function buildHubSpotPropertyPayload(row, objectType, opts = {}) {
     return { ok: false, error: `Tipo de campo no soportado: "${row.type}"` };
   }
 
-  const groupLabel = normalizeCell(row.group);
   const { groupNameByLabel = {} } = opts;
-  let groupName;
-  if (groupLabel && groupNameByLabel[groupLabel]) {
-    groupName = groupNameByLabel[groupLabel];
-  } else if (groupLabel) {
-    groupName = normalizeGroupInternalName(groupLabel);
-  } else {
-    groupName = defaultPropertyGroupName(objectType);
+  const groupLabel = normalizeCell(row.group);
+  const groupName = groupLabel
+    ? resolveGroupNameFromMap(groupLabel, groupNameByLabel)
+    : defaultPropertyGroupName(objectType);
+
+  if (groupLabel && !isValidHubSpotGroupInternalName(groupName)) {
+    return {
+      ok: false,
+      error: `No se pudo resolver el nombre interno del grupo "${groupLabel}" para HubSpot`,
+    };
   }
 
   const payload = {
@@ -334,6 +336,44 @@ export function buildHubSpotPropertyPayload(row, objectType, opts = {}) {
 }
 
 /**
+ * @param {string} groupLabel
+ * @param {Record<string, string>} groupNameByLabel
+ */
+export function resolveGroupNameFromMap(groupLabel, groupNameByLabel = {}) {
+  const label = normalizeCell(groupLabel);
+  if (!label) return '';
+
+  if (groupNameByLabel[label]) return groupNameByLabel[label];
+
+  const lower = label.toLowerCase();
+  const matchedKey = Object.keys(groupNameByLabel).find((k) => k.toLowerCase() === lower);
+  if (matchedKey) return groupNameByLabel[matchedKey];
+
+  return normalizeGroupInternalName(label);
+}
+
+/**
+ * @param {string} name
+ */
+export function isValidHubSpotGroupInternalName(name) {
+  return /^[a-z][a-z0-9_]*$/.test(String(name || ''));
+}
+
+/**
+ * @param {Array<{ name?: string, label?: string }>} groups
+ */
+export function buildGroupNameByLabel(groups) {
+  /** @type {Record<string, string>} */
+  const map = {};
+  for (const g of groups || []) {
+    const lbl = String(g.label || '').trim();
+    const name = String(g.name || '').trim();
+    if (lbl && name) map[lbl] = name;
+  }
+  return map;
+}
+
+/**
  * Crea en HubSpot los grupos de propiedades que falten antes de crear campos.
  * @param {import('./hubspot.js').HubSpotClient} client
  * @param {string} objectType
@@ -351,7 +391,7 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
   const groupNameByLabel = {};
 
   if (!uniqueLabels.length) {
-    return { created, skipped, errors, groupNameByLabel };
+    return { created, skipped, errors, groupNameByLabel, groupNames: new Set() };
   }
 
   const data = await client.listPropertyGroups(objectType);
@@ -415,6 +455,12 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
     }
   }
 
-  return { created, skipped, errors, groupNameByLabel };
+  const refreshed = await client.listPropertyGroups(objectType);
+  const refreshedMap = buildGroupNameByLabel(refreshed?.results || []);
+  for (const [label, name] of Object.entries(refreshedMap)) {
+    groupNameByLabel[label] = name;
+  }
+
+  return { created, skipped, errors, groupNameByLabel, groupNames: new Set(Object.values(groupNameByLabel)) };
 }
 

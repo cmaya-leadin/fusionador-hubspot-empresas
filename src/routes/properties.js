@@ -11,6 +11,9 @@ import {
   buildHubSpotPropertyPayload,
   ensurePropertyGroups,
   resolveHubSpotObjectType,
+  buildGroupNameByLabel,
+  resolveGroupNameFromMap,
+  isValidHubSpotGroupInternalName,
 } from '../properties-import.js';
 
 const router = Router();
@@ -179,15 +182,20 @@ router.post('/:id/create', async (req, res) => {
     const propsData = await client.listProperties(hsObjectType);
     const existing = new Set((propsData?.results || []).map((p) => String(p.name || '').toLowerCase()).filter(Boolean));
 
-    const rowsToCreate = names
+    const pendingRows = names
       .map((name) => rowsByName.get(name))
-      .filter((row) => row && !row.exists && row.valid !== false && !existing.has(String(row.name || '').toLowerCase()));
+      .filter((row) => row && row.valid !== false && !existing.has(String(row.name || '').toLowerCase()));
 
-    const groupLabels = rowsToCreate.map((row) => row.group).filter(Boolean);
+    const groupLabels = [...new Set(
+      pendingRows.map((row) => String(row.group || '').trim()).filter(Boolean),
+    )];
     const groupResults = await ensurePropertyGroups(client, hsObjectType, groupLabels);
     if (groupResults.errors.length) {
       console.warn('[properties] Errores creando grupos:', groupResults.errors);
     }
+
+    const knownGroupNames = groupResults.groupNames || new Set();
+    const groupNameByLabel = groupResults.groupNameByLabel || {};
 
     const results = [];
     for (const name of names) {
@@ -202,20 +210,23 @@ router.post('/:id/create', async (req, res) => {
       }
 
       const groupLabel = String(row.group || '').trim();
-      if (groupLabel && !groupResults.groupNameByLabel?.[groupLabel]) {
-        const groupError = groupResults.errors?.find((e) => e.label === groupLabel);
-        if (groupError) {
+      if (groupLabel) {
+        const resolvedGroupName = resolveGroupNameFromMap(groupLabel, groupNameByLabel);
+        if (!isValidHubSpotGroupInternalName(resolvedGroupName) || !knownGroupNames.has(resolvedGroupName)) {
+          const groupError = groupResults.errors?.find((e) => e.label === groupLabel);
           results.push({
             name,
             status: 'error',
-            reason: `Grupo no disponible (${groupLabel}): ${groupError.error}`,
+            reason: groupError
+              ? `Grupo no disponible (${groupLabel}): ${groupError.error}`
+              : `El grupo "${groupLabel}" no existe en HubSpot (se esperaba "${resolvedGroupName}"). Revisa permisos del token para crear grupos de propiedades.`,
           });
           continue;
         }
       }
 
       const built = buildHubSpotPropertyPayload(row, hsObjectType, {
-        groupNameByLabel: groupResults.groupNameByLabel || {},
+        groupNameByLabel,
       });
       if (!built.ok) {
         results.push({ name, status: 'error', reason: built.error });
