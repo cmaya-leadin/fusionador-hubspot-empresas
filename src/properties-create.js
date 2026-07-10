@@ -108,6 +108,7 @@ export async function executePropertiesCreate(client, params) {
     }
 
     try {
+      progress?.log(`→ ${name} · grupo interno: ${built.payload.groupName}`, 'info');
       await client.createProperty(hsObjectType, built.payload);
       created += 1;
       results.push({ name, status: 'created', groupName: built.payload.groupName });

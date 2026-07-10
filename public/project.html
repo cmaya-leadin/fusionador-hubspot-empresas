@@ -701,7 +701,10 @@
 
     function getPropOptions(row) {
       if (Array.isArray(row?.options) && row.options.length) return row.options;
-      if (row?.optionsRaw && propTypeHasOptions(row.type)) return parseOptionsClient(row.optionsRaw);
+      const raw = row?.optionsRaw || '';
+      if (raw && (propTypeHasOptions(row?.type) || String(raw).includes('|'))) {
+        return parseOptionsClient(raw);
+      }
       return [];
     }
 

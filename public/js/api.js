@@ -180,6 +180,11 @@ const API = {
   },
 
   readSseBody(res, handlers = {}) {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return res.json();
+    }
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';

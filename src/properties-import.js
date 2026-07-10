@@ -313,7 +313,9 @@ export function buildHubSpotPropertyPayload(row, objectType, opts = {}) {
   const payload = {
     name: row.name,
     label: row.label,
-    groupName,
+    groupName: isValidHubSpotGroupInternalName(groupName)
+      ? groupName
+      : normalizeGroupInternalName(groupLabel || groupName),
     type: mapped.type,
     fieldType: mapped.fieldType,
     formField: false,
@@ -343,12 +345,14 @@ export function resolveGroupNameFromMap(groupLabel, groupNameByLabel = {}) {
   const label = normalizeCell(groupLabel);
   if (!label) return '';
 
-  if (groupNameByLabel[label]) return groupNameByLabel[label];
+  let candidate = groupNameByLabel[label] || '';
+  if (!candidate) {
+    const lower = label.toLowerCase();
+    const matchedKey = Object.keys(groupNameByLabel).find((k) => k.toLowerCase() === lower);
+    if (matchedKey) candidate = groupNameByLabel[matchedKey];
+  }
 
-  const lower = label.toLowerCase();
-  const matchedKey = Object.keys(groupNameByLabel).find((k) => k.toLowerCase() === lower);
-  if (matchedKey) return groupNameByLabel[matchedKey];
-
+  if (isValidHubSpotGroupInternalName(candidate)) return candidate;
   return normalizeGroupInternalName(label);
 }
 
@@ -368,7 +372,8 @@ export function buildGroupNameByLabel(groups) {
   for (const g of groups || []) {
     const lbl = String(g.label || '').trim();
     const name = String(g.name || '').trim();
-    if (lbl && name) map[lbl] = name;
+    if (!lbl || !name) continue;
+    map[lbl] = isValidHubSpotGroupInternalName(name) ? name : normalizeGroupInternalName(lbl);
   }
   return map;
 }
@@ -401,7 +406,11 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
 
   for (const g of existing) {
     const lbl = String(g.label || '').trim();
-    if (lbl && g.name) groupNameByLabel[lbl] = String(g.name);
+    const apiName = String(g.name || '').trim();
+    if (!lbl || !apiName) continue;
+    groupNameByLabel[lbl] = isValidHubSpotGroupInternalName(apiName)
+      ? apiName
+      : normalizeGroupInternalName(lbl);
   }
 
   for (const label of uniqueLabels) {
@@ -419,9 +428,14 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
 
     const labelMatch = byLabel.get(label.toLowerCase());
     if (labelMatch) {
-      groupNameByLabel[label] = labelMatch.name;
-      skipped.push({ name: labelMatch.name, label, reason: 'exists_by_label' });
-      continue;
+      const resolvedName = isValidHubSpotGroupInternalName(labelMatch.name)
+        ? labelMatch.name
+        : name;
+      if (byName.has(resolvedName.toLowerCase())) {
+        groupNameByLabel[label] = resolvedName;
+        skipped.push({ name: resolvedName, label, reason: 'exists_by_label' });
+        continue;
+      }
     }
 
     try {
@@ -461,6 +475,10 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
     groupNameByLabel[label] = name;
   }
 
-  return { created, skipped, errors, groupNameByLabel, groupNames: new Set(Object.values(groupNameByLabel)) };
+  const groupNames = new Set(
+    Object.values(groupNameByLabel).filter((n) => isValidHubSpotGroupInternalName(n)),
+  );
+
+  return { created, skipped, errors, groupNameByLabel, groupNames };
 }
 

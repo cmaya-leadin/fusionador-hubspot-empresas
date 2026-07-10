@@ -158,6 +158,7 @@ function wantsStream(req) {
 
 router.post('/:id/create', async (req, res) => {
   const stream = wantsStream(req);
+  let sseOpen = false;
 
   try {
     const project = getProjectById(Number(req.params.id));
@@ -186,10 +187,12 @@ router.post('/:id/create', async (req, res) => {
 
     if (stream) {
       initSse(res);
+      sseOpen = true;
       progress = createPropertiesProgress((payload) => {
         if (payload.type === 'log') writeSse(res, 'log', payload);
         else if (payload.type === 'progress') writeSse(res, 'progress', payload);
       });
+      progress.log('Conexión establecida. Preparando creación en HubSpot…');
     }
 
     addLog({
@@ -227,6 +230,7 @@ router.post('/:id/create', async (req, res) => {
     if (stream) {
       writeSse(res, 'complete', result);
       res.end();
+      sseOpen = false;
       return;
     }
 
@@ -245,9 +249,10 @@ router.post('/:id/create', async (req, res) => {
       // ignore logging failures
     }
 
-    if (stream) {
+    if (stream && sseOpen) {
       writeSse(res, 'error', { message });
       res.end();
+      sseOpen = false;
       return;
     }
 

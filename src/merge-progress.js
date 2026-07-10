@@ -213,4 +213,5 @@ export function initSse(res) {
   if (typeof res.flushHeaders === 'function') {
     res.flushHeaders();
   }
+  res.write(': connected\n\n');
 }
