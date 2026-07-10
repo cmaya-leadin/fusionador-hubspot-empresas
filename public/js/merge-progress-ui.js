@@ -16,6 +16,7 @@ const MergeProgressUI = {
       apply: 'Fusión en producción',
       simulate: 'Simulación de fusión',
       retry: 'Reintento de fusiones fallidas',
+      properties: 'Creación de propiedades',
     };
     document.getElementById('mergeProgressTitle').textContent =
       titles[mode] || 'Proceso de fusión';
@@ -29,6 +30,10 @@ const MergeProgressUI = {
     document.getElementById('mergeProgressSummary').classList.add('hidden');
     if (this.logEl) this.logEl.innerHTML = '';
     this.panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  showProperties() {
+    this.show('properties');
   },
 
   hide() {
@@ -46,6 +51,7 @@ const MergeProgressUI = {
       apply: 'Fusión en producción',
       simulate: 'Simulación de fusión',
       retry: 'Reintento de fusiones fallidas',
+      properties: 'Creación de propiedades',
     };
 
     this.panel.classList.remove('hidden');
@@ -125,6 +131,22 @@ const MergeProgressUI = {
     }
     if (stats.mergesFailed != null && data.phase === 'done') {
       chips.push(`<span class="merge-stat-chip ${stats.mergesFailed > 0 ? 'error' : ''}">Fallidas: <strong>${formatNum(stats.mergesFailed)}</strong></span>`);
+    }
+
+    if (stats.current != null && stats.total != null) {
+      chips.push(`<span class="merge-stat-chip">Propiedad: <strong>${formatNum(stats.current)}/${formatNum(stats.total)}</strong></span>`);
+    }
+    if (stats.created != null) {
+      chips.push(`<span class="merge-stat-chip success">Creadas: <strong>${formatNum(stats.created)}</strong></span>`);
+    }
+    if (stats.errors != null && stats.errors > 0) {
+      chips.push(`<span class="merge-stat-chip error">Errores: <strong>${formatNum(stats.errors)}</strong></span>`);
+    }
+    if (stats.exists != null && stats.exists > 0) {
+      chips.push(`<span class="merge-stat-chip">Existentes: <strong>${formatNum(stats.exists)}</strong></span>`);
+    }
+    if (stats.skipped != null && stats.skipped > 0) {
+      chips.push(`<span class="merge-stat-chip">Omitidas: <strong>${formatNum(stats.skipped)}</strong></span>`);
     }
 
     if (chips.length) {
@@ -225,6 +247,51 @@ const MergeProgressUI = {
         : failed > 0
           ? 'Proceso finalizado con algunos errores'
           : 'Todas las fusiones se aplicaron correctamente';
+  },
+
+  onPropertiesComplete(result) {
+    const summary = result.summary || {};
+    const statusEl = document.getElementById('mergeProgressStatus');
+    const summaryEl = document.getElementById('mergeProgressSummary');
+    const errors = (result.results || []).filter((r) => r.status === 'error');
+
+    document.getElementById('mergeProgressBar').style.width = '100%';
+    document.getElementById('mergeProgressPercent').textContent = '100%';
+    document.getElementById('mergeProgressEta').textContent = 'Completado';
+
+    if (summary.errors > 0) {
+      statusEl.textContent = 'Finalizado con errores';
+      statusEl.className = 'merge-progress-status warning';
+    } else {
+      statusEl.textContent = 'Finalizado';
+      statusEl.className = 'merge-progress-status done';
+    }
+
+    let summaryHtml = `
+      <div class="merge-summary-grid">
+        <div class="merge-summary-item success"><span>Creadas</span><strong>${formatNum(summary.created)}</strong></div>
+        <div class="merge-summary-item error"><span>Con error</span><strong>${formatNum(summary.errors)}</strong></div>
+        <div class="merge-summary-item"><span>Ya existían</span><strong>${formatNum(summary.exists)}</strong></div>
+        <div class="merge-summary-item"><span>Omitidas</span><strong>${formatNum(summary.skipped)}</strong></div>
+      </div>`;
+
+    if (errors.length) {
+      summaryHtml += '<div class="merge-failed-list"><h4>Detalle de errores HubSpot</h4><ul>';
+      for (const r of errors.slice(0, 40)) {
+        summaryHtml += `<li><code>${escapeHtml(r.name)}</code>: ${escapeHtml(r.reason || 'Error')}</li>`;
+      }
+      if (errors.length > 40) {
+        summaryHtml += `<li>… y ${errors.length - 40} más (ver registro de actividad)</li>`;
+      }
+      summaryHtml += '</ul></div>';
+    }
+
+    summaryEl.innerHTML = summaryHtml;
+    summaryEl.classList.remove('hidden');
+    document.getElementById('mergeProgressMessage').textContent =
+      summary.errors > 0
+        ? 'Proceso finalizado con algunos errores'
+        : 'Todas las propiedades se crearon correctamente';
   },
 
   onError(message) {

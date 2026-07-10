@@ -89,6 +89,18 @@ const API = {
     });
   },
 
+  createPropertiesWithStream(projectId, hsObjectType, names, handlers = {}) {
+    return this.consumeSseResponse(
+      fetch(`/api/properties/${projectId}/create?stream=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ hsObjectType, names, stream: true }),
+      }),
+      handlers,
+    );
+  },
+
   testConnection(projectId) {
     return this.request(`/merge/${projectId}/test-connection`, {
       method: 'POST',

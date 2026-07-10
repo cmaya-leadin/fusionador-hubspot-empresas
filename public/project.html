@@ -826,17 +826,24 @@
       const btn = document.getElementById('createPropertiesBtn');
       btn.disabled = true;
       try {
-        setPropsStatus(`Creando ${selected.length} propiedades en HubSpot…`);
-        scrollToPropsStatus();
-        const res = await API.createProperties(projectId, hsObjectType, selected);
+        setPropsStatus('');
+        MergeProgressUI.showProperties();
+
+        const streamHandlers = {
+          onProgress: (data) => MergeProgressUI.onProgress(data),
+          onLog: (data) => MergeProgressUI.onLog(data),
+        };
+
+        const res = await API.createPropertiesWithStream(projectId, hsObjectType, selected, streamHandlers);
+        MergeProgressUI.onPropertiesComplete(res);
+
         const summary = formatCreateResultsSummary(res);
         setPropsStatus(summary.msg, summary.hasErrors);
         await loadProject();
         await loadLogs();
-        scrollToPropsStatus();
       } catch (err) {
+        MergeProgressUI.onError(err.message);
         setPropsStatus(err.message, true);
-        scrollToPropsStatus();
         await loadLogs();
       } finally {
         btn.disabled = false;

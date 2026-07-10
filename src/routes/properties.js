@@ -8,13 +8,11 @@ import { createHubSpotClient } from '../hubspot.js';
 import {
   validateTemplateHeaders,
   parseImportedRows,
-  buildHubSpotPropertyPayload,
-  ensurePropertyGroups,
   resolveHubSpotObjectType,
-  buildGroupNameByLabel,
-  resolveGroupNameFromMap,
-  isValidHubSpotGroupInternalName,
 } from '../properties-import.js';
+import { createPropertiesProgress } from '../properties-progress.js';
+import { executePropertiesCreate } from '../properties-create.js';
+import { initSse, writeSse } from '../merge-progress.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -154,7 +152,13 @@ router.post('/:id/import', upload.single('file'), async (req, res) => {
   }
 });
 
+function wantsStream(req) {
+  return req.query.stream === '1' || req.body?.stream === true;
+}
+
 router.post('/:id/create', async (req, res) => {
+  const stream = wantsStream(req);
+
   try {
     const project = getProjectById(Number(req.params.id));
     if (!canAccessProject(project, req)) return res.status(404).json({ error: 'Proyecto no encontrado' });
@@ -176,71 +180,33 @@ router.post('/:id/create', async (req, res) => {
       importObj = {};
     }
     const importedRows = Array.isArray(importObj.rows) ? importObj.rows : [];
-    const rowsByName = new Map(importedRows.map((r) => [String(r.name || ''), r]));
+
+    /** @type {ReturnType<typeof createPropertiesProgress> | null} */
+    let progress = null;
+
+    if (stream) {
+      initSse(res);
+      progress = createPropertiesProgress((payload) => {
+        if (payload.type === 'log') writeSse(res, 'log', payload);
+        else if (payload.type === 'progress') writeSse(res, 'progress', payload);
+      });
+    }
+
+    addLog({
+      userId: req.session.userId,
+      projectId: project.id,
+      action: 'PROPERTIES_CREATE',
+      status: 'INFO',
+      message: `Iniciando creación de ${names.length} propiedades en ${hsObjectType}`,
+    });
 
     const client = createHubSpotClient(token);
-    const propsData = await client.listProperties(hsObjectType);
-    const existing = new Set((propsData?.results || []).map((p) => String(p.name || '').toLowerCase()).filter(Boolean));
-
-    const pendingRows = names
-      .map((name) => rowsByName.get(name))
-      .filter((row) => row && row.valid !== false && !existing.has(String(row.name || '').toLowerCase()));
-
-    const groupLabels = [...new Set(
-      pendingRows.map((row) => String(row.group || '').trim()).filter(Boolean),
-    )];
-    const groupResults = await ensurePropertyGroups(client, hsObjectType, groupLabels);
-    if (groupResults.errors.length) {
-      console.warn('[properties] Errores creando grupos:', groupResults.errors);
-    }
-
-    const knownGroupNames = groupResults.groupNames || new Set();
-    const groupNameByLabel = groupResults.groupNameByLabel || {};
-
-    const results = [];
-    for (const name of names) {
-      const row = rowsByName.get(name);
-      if (!row) {
-        results.push({ name, status: 'skipped', reason: 'No está en la importación actual' });
-        continue;
-      }
-      if (existing.has(String(name).toLowerCase())) {
-        results.push({ name, status: 'exists', reason: 'Ya existe en la cuenta' });
-        continue;
-      }
-
-      const groupLabel = String(row.group || '').trim();
-      if (groupLabel) {
-        const resolvedGroupName = resolveGroupNameFromMap(groupLabel, groupNameByLabel);
-        if (!isValidHubSpotGroupInternalName(resolvedGroupName) || !knownGroupNames.has(resolvedGroupName)) {
-          const groupError = groupResults.errors?.find((e) => e.label === groupLabel);
-          results.push({
-            name,
-            status: 'error',
-            reason: groupError
-              ? `Grupo no disponible (${groupLabel}): ${groupError.error}`
-              : `El grupo "${groupLabel}" no existe en HubSpot (se esperaba "${resolvedGroupName}"). Revisa permisos del token para crear grupos de propiedades.`,
-          });
-          continue;
-        }
-      }
-
-      const built = buildHubSpotPropertyPayload(row, hsObjectType, {
-        groupNameByLabel,
-      });
-      if (!built.ok) {
-        results.push({ name, status: 'error', reason: built.error });
-        continue;
-      }
-      try {
-        await client.createProperty(hsObjectType, built.payload);
-        results.push({ name, status: 'created', groupName: built.payload.groupName });
-        existing.add(String(name).toLowerCase());
-        row.exists = true;
-      } catch (e) {
-        results.push({ name, status: 'error', reason: e instanceof Error ? e.message : String(e) });
-      }
-    }
+    const result = await executePropertiesCreate(client, {
+      hsObjectType,
+      names,
+      importedRows,
+      progress,
+    });
 
     updateProject(project.id, {
       propertiesImport: {
@@ -249,18 +215,22 @@ router.post('/:id/create', async (req, res) => {
       },
     });
 
-    const createdCount = results.filter((r) => r.status === 'created').length;
-    const errorCount = results.filter((r) => r.status === 'error').length;
-
+    const { summary } = result;
     addLog({
       userId: req.session.userId,
       projectId: project.id,
       action: 'PROPERTIES_CREATE',
-      status: errorCount > 0 ? (createdCount > 0 ? 'WARNING' : 'ERROR') : 'SUCCESS',
-      message: `Creación de propiedades en ${hsObjectType}: ${createdCount} creadas${errorCount ? `, ${errorCount} con error` : ''}`,
+      status: summary.errors > 0 ? (summary.created > 0 ? 'WARNING' : 'ERROR') : 'SUCCESS',
+      message: `Creación de propiedades en ${hsObjectType}: ${summary.created} creadas${summary.errors ? `, ${summary.errors} con error` : ''}`,
     });
 
-    res.json({ hsObjectType, groupResults, results });
+    if (stream) {
+      writeSse(res, 'complete', result);
+      res.end();
+      return;
+    }
+
+    res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -274,6 +244,13 @@ router.post('/:id/create', async (req, res) => {
     } catch {
       // ignore logging failures
     }
+
+    if (stream) {
+      writeSse(res, 'error', { message });
+      res.end();
+      return;
+    }
+
     res.status(500).json({ error: message });
   }
 });
