@@ -200,7 +200,23 @@ router.post('/:id/create', async (req, res) => {
         results.push({ name, status: 'exists', reason: 'Ya existe en la cuenta' });
         continue;
       }
-      const built = buildHubSpotPropertyPayload(row, hsObjectType);
+
+      const groupLabel = String(row.group || '').trim();
+      if (groupLabel && !groupResults.groupNameByLabel?.[groupLabel]) {
+        const groupError = groupResults.errors?.find((e) => e.label === groupLabel);
+        if (groupError) {
+          results.push({
+            name,
+            status: 'error',
+            reason: `Grupo no disponible (${groupLabel}): ${groupError.error}`,
+          });
+          continue;
+        }
+      }
+
+      const built = buildHubSpotPropertyPayload(row, hsObjectType, {
+        groupNameByLabel: groupResults.groupNameByLabel || {},
+      });
       if (!built.ok) {
         results.push({ name, status: 'error', reason: built.error });
         continue;

@@ -88,12 +88,22 @@ export function defaultPropertyGroupName(objectType) {
 }
 
 /**
+ * @param {string} raw
+ */
+function normalizeTypeKey(raw) {
+  return normalizeCell(raw)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
+/**
  * Mapea el "Tipo de campo" del Excel al payload de HubSpot.
  * Esto puede ajustarse si aparecen más tipos en clientes.
  * @param {string} rawType
  */
 export function mapExcelTypeToHubSpot(rawType) {
-  const t = normalizeCell(rawType).toLowerCase();
+  const t = normalizeTypeKey(rawType);
   if (!t) return null;
 
   // Valores típicos (dependen del origen del Excel).
@@ -114,12 +124,12 @@ export function mapExcelTypeToHubSpot(rawType) {
   }
   // Multiselección: varias casillas con opciones (HubSpot: enumeration + checkbox).
   if (
-    t.includes('múltiples casillas')
-    || t.includes('multiples casillas')
+    t.includes('multiples casillas')
     || (t.includes('multiple') && t.includes('casilla'))
-    || t.includes('selección múltiple')
     || t.includes('seleccion multiple')
     || t.includes('multi select')
+    || t.includes('multichoice')
+    || t.includes('multi choice')
   ) {
     return { type: 'enumeration', fieldType: 'checkbox' };
   }
@@ -168,10 +178,30 @@ export function parseOptions(raw) {
     parts = text.split(/[\n;]+/g).map((s) => s.trim()).filter(Boolean);
   }
 
-  return parts.map((p) => {
+  return parts.map((p, index) => {
     const label = p;
-    return { label, value: normalizeInternalName(label) };
+    return {
+      label,
+      value: normalizeInternalName(label),
+      displayOrder: index,
+      hidden: false,
+    };
   });
+}
+
+/**
+ * @param {ImportedPropertyRow} row
+ */
+export function getRowOptions(row) {
+  const fromRaw = parseOptions(row?.optionsRaw || '');
+  if (fromRaw.length) return fromRaw;
+  if (!Array.isArray(row?.options) || !row.options.length) return [];
+  return row.options.map((opt, index) => ({
+    label: String(opt?.label || '').trim(),
+    value: String(opt?.value || normalizeInternalName(opt?.label || '')).trim(),
+    displayOrder: Number.isFinite(opt?.displayOrder) ? opt.displayOrder : index,
+    hidden: Boolean(opt?.hidden),
+  })).filter((opt) => opt.label && opt.value);
 }
 
 /**
@@ -256,8 +286,9 @@ export function parseImportedRows(rows) {
  * Construye el payload de creación para HubSpot, o error si no se puede.
  * @param {ImportedPropertyRow} row
  * @param {string} [objectType]
+ * @param {{ groupNameByLabel?: Record<string, string> }} [opts]
  */
-export function buildHubSpotPropertyPayload(row, objectType) {
+export function buildHubSpotPropertyPayload(row, objectType, opts = {}) {
   if (!row.valid) {
     return { ok: false, error: row.error || 'Fila inválida' };
   }
@@ -267,9 +298,15 @@ export function buildHubSpotPropertyPayload(row, objectType) {
   }
 
   const groupLabel = normalizeCell(row.group);
-  const groupName = groupLabel
-    ? normalizeGroupInternalName(groupLabel)
-    : defaultPropertyGroupName(objectType);
+  const { groupNameByLabel = {} } = opts;
+  let groupName;
+  if (groupLabel && groupNameByLabel[groupLabel]) {
+    groupName = groupNameByLabel[groupLabel];
+  } else if (groupLabel) {
+    groupName = normalizeGroupInternalName(groupLabel);
+  } else {
+    groupName = defaultPropertyGroupName(objectType);
+  }
 
   const payload = {
     name: row.name,
@@ -281,11 +318,16 @@ export function buildHubSpotPropertyPayload(row, objectType) {
   };
 
   if (mapped.type === 'enumeration') {
-    const options = parseOptions(row.optionsRaw || '');
+    const options = getRowOptions(row);
     if (!options.length) {
       return { ok: false, error: 'Faltan "Opciones" para un campo de tipo enumeración' };
     }
-    payload.options = options;
+    payload.options = options.map((opt, index) => ({
+      label: opt.label,
+      value: opt.value,
+      displayOrder: opt.displayOrder ?? index,
+      hidden: opt.hidden ?? false,
+    }));
   }
 
   return { ok: true, payload };
@@ -305,15 +347,22 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
   const created = [];
   const skipped = [];
   const errors = [];
+  /** @type {Record<string, string>} */
+  const groupNameByLabel = {};
 
   if (!uniqueLabels.length) {
-    return { created, skipped, errors };
+    return { created, skipped, errors, groupNameByLabel };
   }
 
   const data = await client.listPropertyGroups(objectType);
   const existing = data?.results || [];
   const byName = new Map(existing.map((g) => [String(g.name || '').toLowerCase(), g]));
   const byLabel = new Map(existing.map((g) => [String(g.label || '').trim().toLowerCase(), g]));
+
+  for (const g of existing) {
+    const lbl = String(g.label || '').trim();
+    if (lbl && g.name) groupNameByLabel[lbl] = String(g.name);
+  }
 
   for (const label of uniqueLabels) {
     const name = normalizeGroupInternalName(label);
@@ -323,12 +372,14 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
     }
 
     if (byName.has(name.toLowerCase())) {
+      groupNameByLabel[label] = byName.get(name.toLowerCase()).name;
       skipped.push({ name, label, reason: 'exists_by_name' });
       continue;
     }
 
     const labelMatch = byLabel.get(label.toLowerCase());
     if (labelMatch) {
+      groupNameByLabel[label] = labelMatch.name;
       skipped.push({ name: labelMatch.name, label, reason: 'exists_by_label' });
       continue;
     }
@@ -337,22 +388,33 @@ export async function ensurePropertyGroups(client, objectType, displayLabels) {
       await client.createPropertyGroup(objectType, {
         name,
         label,
-        displayOrder: -1,
+        displayOrder: 1,
       });
       created.push({ name, label });
+      groupNameByLabel[label] = name;
       byName.set(name.toLowerCase(), { name, label });
       byLabel.set(label.toLowerCase(), { name, label });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Si otro proceso lo creó en paralelo, tratarlo como existente.
       if (/already exists|duplicate|conflict|409/i.test(message)) {
-        skipped.push({ name, label, reason: 'exists_conflict' });
+        const refreshed = await client.listPropertyGroups(objectType);
+        const match = (refreshed?.results || []).find(
+          (g) => String(g.label || '').trim().toLowerCase() === label.toLowerCase()
+            || String(g.name || '').toLowerCase() === name.toLowerCase(),
+        );
+        if (match?.name) {
+          groupNameByLabel[label] = match.name;
+          skipped.push({ name: match.name, label, reason: 'exists_conflict' });
+        } else {
+          errors.push({ name, label, error: message });
+        }
       } else {
         errors.push({ name, label, error: message });
       }
     }
   }
 
-  return { created, skipped, errors };
+  return { created, skipped, errors, groupNameByLabel };
 }
 
